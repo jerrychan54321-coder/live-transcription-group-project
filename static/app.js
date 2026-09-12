@@ -1,4 +1,4 @@
-// Vanilla JS deliberately preserves the FastAPI endpoints and result payload contract.
+// Live WebSocket results and recording HTTP streams have independent state and renderers.
 // Rendering, connection state, and user actions are separated to keep merges localized.
 const $ = (id) => document.getElementById(id);
 let ws = null;
@@ -9,6 +9,18 @@ let uploading = false;
 let currentLanguage = "Chinese";
 let selectedDevice = "";
 let historyEntries = [];
+let recordingDocuments = [];
+let lastRecordingFile = null;
+let failedDocument = null;
+let liveStages = new Set();
+let speechDetected = false;
+let uploadStarted = 0;
+let uploadTimer = null;
+let selectedRecordingFile = null;
+let recordingXHR = null;
+let activeRecordingJob = null;
+let stopRequested = false;
+let recordingPhase = "idle";
 const languageNames = { Chinese: "SIMPLIFIED CHINESE", Vietnamese: "VIETNAMESE" };
 const languageCodes = { Chinese: "zh-Hans", Vietnamese: "vi" };
 const placeholders = { Chinese: "选择麦克风，然后开始聆听。", Vietnamese: "Chọn micrô, sau đó bắt đầu nghe." };
@@ -38,11 +50,19 @@ async function request(endpoint, body) {
 
 function refreshControls() {
   $("toggleRecordBtn").disabled = !connected || busy || (!isRecording && !selectedDevice);
-  $("audioDeviceSelect").disabled = !connected || busy || uploading || isRecording;
-  $("btnLangChinese").disabled = $("btnLangVietnamese").disabled = !connected || busy || uploading;
-  $("dropzone").disabled = !connected || busy || uploading;
+  $("audioDeviceSelect").disabled = !connected || busy || isRecording;
+  $("btnLangChinese").disabled = $("btnLangVietnamese").disabled = !connected || busy;
+  $("dropzone").disabled = uploading;
+  $("recordingLanguage").disabled = uploading;
+  $("segmentLength").disabled = $("customSegmentLength").disabled = uploading;
+  $("startRecordingBtn").disabled = uploading || !selectedRecordingFile;
+  $("stopRecordingBtn").hidden = !uploading;
+  $("stopRecordingBtn").disabled = stopRequested;
+  $("recordingClearBtn").disabled = uploading || !recordingDocuments.length;
+  $("recordingExportBtn").disabled = uploading || !recordingDocuments.some(d => d.entries.length);
   $("clearBtn").disabled = $("exportBtn").disabled = historyEntries.length === 0;
-  $("sessionHint").textContent = !connected ? "Waiting for the local engine…" : isRecording ? "Listening · stop when your lecture ends" : !selectedDevice ? "Connect a microphone to listen, or upload a file" : "Ready · start when your lecturer speaks";
+  refreshLiveStatus();
+  $("sessionHint").textContent = !connected ? "Waiting for the local engine…" : isRecording ? "Listening · stop when your lecture ends" : !selectedDevice ? "Connect a microphone to start listening" : "Ready · start when your lecturer speaks";
 }
 
 function initWebSocket() {
@@ -50,6 +70,7 @@ function initWebSocket() {
   ws = new WebSocket(`${protocol}//${location.host}/ws/live`);
   ws.onopen = () => {
     connected = true;
+    liveStages.clear();
     $("connectionStatus").textContent = "● Connected";
     $("connectionStatus").className = "status-indicator connected";
     refreshControls();
@@ -62,6 +83,7 @@ function initWebSocket() {
     $("stageNote").textContent = "Connection lost · recording state unknown";
     $("audioMeterFill").style.width = "0%";
     $("vadStatusBadge").textContent = "Unavailable";
+    refreshLiveStatus();
     refreshControls();
     setTimeout(initWebSocket, 2000);
   };
@@ -73,10 +95,16 @@ function initWebSocket() {
 
 function handleSocketMessage(msg) {
   if (msg.type === "audio_level") {
+    speechDetected = Boolean(msg.is_speech);
+    refreshLiveStatus();
     $("audioMeterFill").style.width = `${Math.min(Math.max((Number(msg.level) || 0) * 300, 0), 100)}%`;
     $("vadStatusBadge").textContent = msg.is_speech ? "Speaking" : isRecording ? "Listening" : "Idle";
     $("vadStatusBadge").classList.toggle("speaking", Boolean(msg.is_speech));
-  } else if (msg.type === "result") renderSubtitleResult(msg);
+  } else if (msg.type === "live_status") {
+    if (msg.active) liveStages.add(msg.stage); else liveStages.delete(msg.stage);
+    if (msg.error) showNotice(msg.error);
+    refreshLiveStatus();
+  } else if (msg.type === "result" && msg.source !== "recording") renderSubtitleResult(msg);
   else if (msg.type === "devices") populateAudioDevices(msg.devices, msg.selected);
   else if (msg.type === "state") {
     if (languageNames[msg.language]) applyLanguage(msg.language);
@@ -145,7 +173,10 @@ function textElement(tag, className, text) {
 function addHistoryItem(item) {
   $("historyList").querySelector(".empty-state")?.remove();
   const entry = textElement("article", "history-item", "");
-  entry.append(textElement("div", "hist-time", `${item.timestamp} · ${item.language} · ${seconds(item.total_latency_ms)} processing`));
+  const metadata = textElement("div", "hist-time", "");
+  metadata.append(textElement("span", "timestamp", formatPosition(item.elapsed_s)));
+  metadata.append(textElement("span", "", `${item.language} · ${seconds(item.total_latency_ms)} processing`));
+  entry.append(metadata);
   entry.append(textElement("div", "hist-en", item.corrected || item.original || "—"));
   const translation = textElement("div", "hist-trans", item.translated || "Translation unavailable");
   translation.lang = languageCodes[item.language] || "";
@@ -186,6 +217,7 @@ function updateRecordingState(recording) {
     $("vadStatusBadge").textContent = "Idle";
     $("vadStatusBadge").classList.remove("speaking");
   }
+  refreshLiveStatus();
   refreshControls();
 }
 
@@ -225,13 +257,8 @@ $("clearBtn").addEventListener("click", () => {
   refreshControls();
 });
 $("exportBtn").addEventListener("click", () => {
-  const text = historyEntries.map((item) => `[${item.timestamp}] ${item.language}\nOriginal: ${item.original || ""}\nCorrected: ${item.corrected || item.original || ""}\nTranslation: ${item.translated || ""}\nCorrections: ${(item.errors_corrected || []).join("; ")}\nProcessing time: ${seconds(item.total_latency_ms)}`).join("\n\n");
-  const url = URL.createObjectURL(new Blob(["\uFEFFClassroom Live — Lecture transcript\n\n", text], { type: "text/plain;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `lecture-transcript-${new Date().toISOString().slice(0, 10)}.txt`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadTranscript("live-transcript", "Classroom Live — Live transcript", historyEntries.map(item =>
+    entryText(item, $("liveTimestamps").checked ? formatPosition(item.elapsed_s) : "")).join("\n\n"));
 });
 
 $("dropzone").addEventListener("click", () => $("mediaFileInput").click());
@@ -240,39 +267,241 @@ $("dropzone").addEventListener("dragleave", () => $("dropzone").classList.remove
 $("dropzone").addEventListener("drop", (event) => {
   event.preventDefault();
   $("dropzone").classList.remove("drag-over");
-  if (event.dataTransfer.files.length > 1) { showNotice("Please upload one recording at a time."); return; }
-  if (event.dataTransfer.files[0]) handleFileUpload(event.dataTransfer.files[0]);
+  if (uploading) return;
+  if (event.dataTransfer.files.length > 1) { recordingStatus("Please upload one recording at a time."); return; }
+  if (event.dataTransfer.files[0]) selectRecordingFile(event.dataTransfer.files[0]);
 });
-$("mediaFileInput").addEventListener("change", (event) => { if (event.target.files[0]) handleFileUpload(event.target.files[0]); });
-async function handleFileUpload(file) {
-  if (uploading || busy || !connected) return;
-  if (!file.size) { showNotice("This file is empty. Choose an audio or video recording."); return; }
-  if (!/^(audio|video)\//.test(file.type) && !/\.(mp4|mov|mkv|mp3|wav|m4a|aac|flac|ogg|webm|avi|wma|aiff|opus)$/i.test(file.name)) {
-    showNotice("Choose an audio or video file, such as MP3, WAV, M4A or MP4."); return;
+$("mediaFileInput").addEventListener("change", (event) => { if (event.target.files[0]) selectRecordingFile(event.target.files[0]); });
+
+function formatPosition(value) {
+  const whole = Math.max(0, Math.floor(Number(value) || 0));
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor(whole / 60) % 60;
+  return `${hours ? `${hours}:` : ""}${String(minutes).padStart(2, "0")}:${String(whole % 60).padStart(2, "0")}`;
+}
+function refreshLiveStatus() {
+  const processing = [...liveStages].join(" & ");
+  $("liveSpinner").hidden = !connected || !processing;
+  $("stageNote").textContent = !connected ? "Connection lost · recording state unknown" :
+    processing || (isRecording ? speechDetected ? "Speech detected" : "Listening" : "Ready");
+  $("listeningBanner").hidden = !isRecording;
+  $("persistentLiveStatus").textContent = connected ? "● Live listening" : "Live connection lost · microphone state unknown";
+  $("stopLiveBtn").disabled = !connected || busy;
+}
+function selectWorkspace(name) {
+  for (const mode of ["live", "recording"]) {
+    const active = mode === name;
+    $(`${mode}Tab`).setAttribute("aria-selected", String(active));
+    $(`${mode}Tab`).tabIndex = active ? 0 : -1;
+    $(`${mode}Workspace`).hidden = !active;
   }
-  uploading = true;
-  showNotice();
+  document.querySelector(".skip-link").href = name === "live" ? "#liveSubtitles" : "#recordingResultsHeading";
+}
+for (const mode of ["live", "recording"]) {
+  $(`${mode}Tab`).addEventListener("click", () => selectWorkspace(mode));
+  $(`${mode}Tab`).addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? "live" : event.key === "End" ? "recording" : mode === "live" ? "recording" : "live";
+    selectWorkspace(next); $(`${next}Tab`).focus();
+  });
+  $(`${mode}Timestamps`).addEventListener("change", () => {
+    $(`${mode}Workspace`).classList.toggle("hide-timestamps", !$(`${mode}Timestamps`).checked);
+  });
+}
+$("stopLiveBtn").addEventListener("click", () => runAction(async () => {
+  const result = await request("/api/stop");
+  updateRecordingState(result.is_recording);
+}));
+function entryText(item, timestamp) {
+  return `${timestamp ? `[${timestamp}] ` : ""}${item.language}\nOriginal: ${item.original || ""}\nCorrected: ${item.corrected || item.original || ""}\nTranslation: ${item.translated || "Translation unavailable"}\nCorrections: ${(item.errors_corrected || []).join("; ")}`;
+}
+function downloadTranscript(prefix, heading, text) {
+  const url = URL.createObjectURL(new Blob(["\uFEFF", heading, "\n\n", text], { type: "text/plain;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url; link.download = `${prefix}-${new Date().toISOString().slice(0, 10)}.txt`;
+  link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+$("recordingExportBtn").addEventListener("click", () => {
+  const text = recordingDocuments.map(doc => `${doc.name} · ${doc.status}\n\n` + doc.entries.map(item =>
+    entryText(item, $("recordingTimestamps").checked ? `${formatPosition(item.start)}–${formatPosition(item.end)}` : "")
+  ).join("\n\n")).join("\n\n────\n\n");
+  downloadTranscript("recording-transcripts", "Classroom Live — Recording transcripts", text);
+});
+const emptyRecordings = $("recordingResults").innerHTML;
+$("recordingClearBtn").addEventListener("click", () => {
+  if (!window.confirm("Clear recording transcripts? Export them first to keep a copy.")) return;
+  recordingDocuments = []; failedDocument = null; lastRecordingFile = null;
+  $("recordingResults").innerHTML = emptyRecordings;
+  $("uploadStatus").hidden = $("recordingProgress").hidden = $("recordingElapsed").hidden = $("retryRecordingBtn").hidden = true;
   refreshControls();
+});
+function recordingStatus(message, completed = null, total = null) {
   $("uploadStatus").hidden = false;
-  $("uploadStatus").setAttribute("aria-busy", "true");
-  $("uploadFileName").textContent = file.name;
-  $("uploadProgressText").textContent = "Uploading and processing… Longer recordings may take a while.";
-  const language = currentLanguage;
-  const form = new FormData();
-  form.append("file", file);
+  $("uploadProgressText").textContent = message;
+  const progress = $("recordingProgress");
+  progress.hidden = !uploading;
+  if (completed != null && total > 0) { progress.max = total; progress.value = completed; }
+  else progress.removeAttribute("value");
+}
+function appendRecordingSegment(doc, item) {
+  doc.entries.push(item);
+  const entry = textElement("article", "history-item", "");
+  entry.append(textElement("div", "timestamp hist-time", `${formatPosition(item.start)}–${formatPosition(item.end)}`));
+  entry.append(textElement("div", "line-label", `ENGLISH · CORRECTED`));
+  entry.append(textElement("div", "hist-en", item.corrected || item.original || "—"));
+  entry.append(textElement("div", "line-label", `${languageNames[item.language]} · TRANSLATION`));
+  const translation = textElement("div", "hist-trans", item.translated || "Translation unavailable");
+  translation.lang = languageCodes[item.language]; entry.append(translation);
+  const details = document.createElement("details");
+  details.append(textElement("summary", "", "Original English & corrections"));
+  details.append(textElement("p", "", item.original || "—"));
+  details.append(textElement("p", "", (item.errors_corrected || []).join(" · ") || "No corrections"));
+  entry.append(details); doc.element.append(entry);
+}
+function uploadWithProgress(form, onEvent) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let offset = 0, pending = "", complete = false, streamError = null;
+    recordingXHR = xhr;
+    xhr.open("POST", "/api/upload_media");
+    xhr.upload.onprogress = event => {
+      if (stopRequested) return;
+      if (event.lengthComputable) recordingStatus(`Uploading · ${Math.round(event.loaded / event.total * 100)}%`, event.loaded, event.total);
+    };
+    xhr.upload.onload = () => {
+      recordingPhase = "processing"; $("stopRecordingBtn").textContent = "Stop processing";
+      if (!stopRequested) recordingStatus("Upload received · waiting for processing…");
+    };
+    function consume(final = false) {
+      if (xhr.status !== 200) return;
+      pending += xhr.responseText.slice(offset); offset = xhr.responseText.length;
+      const lines = pending.split("\n"); pending = lines.pop();
+      if (final && pending.trim()) { lines.push(pending); pending = ""; }
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        if (event.type === "error") streamError = event.message;
+        if (event.type === "complete" || event.type === "stopped") complete = true;
+        onEvent(event);
+      }
+    }
+    xhr.onprogress = () => { try { consume(); } catch (_) { streamError = "A processing update could not be read."; xhr.abort(); } };
+    xhr.onload = () => {
+      try {
+        consume(true);
+        if (xhr.status !== 200) {
+          let message = `The server returned an error (${xhr.status}).`;
+          try { const data = JSON.parse(xhr.responseText); if (typeof data.detail === "string") message = data.detail; } catch (_) {}
+          throw new Error(message);
+        }
+        if (streamError || !complete) throw new Error(streamError || "Processing connection ended early. Retry the recording.");
+        resolve();
+      } catch (error) { reject(error); }
+    };
+    xhr.onerror = () => reject(new Error("Connection lost. Check the local server and retry."));
+    xhr.onabort = () => stopRequested ? resolve() : reject(new Error(streamError || "Upload interrupted. Retry the recording."));
+    xhr.send(form);
+  });
+}
+function selectRecordingFile(file) {
+  if (uploading) return;
+  selectedRecordingFile = file;
+  $("selectedRecordingName").textContent = file.name;
+  $("mediaFileInput").value = "";
+  refreshControls();
+}
+$("segmentLength").addEventListener("change", () => { $("customSegmentField").hidden = $("segmentLength").value !== "custom"; });
+$("startRecordingBtn").addEventListener("click", () => { if (selectedRecordingFile) handleFileUpload(selectedRecordingFile); });
+$("stopRecordingBtn").addEventListener("click", async () => {
+  if (!uploading || stopRequested) return;
+  stopRequested = true; refreshControls();
+  recordingStatus("Stopping… waiting for the current operation to finish.");
   try {
-    await request("/api/set_language", { language });
-    const result = await request("/api/upload_media", form);
-    renderSubtitleResult({ ...result, language: result.language || language });
-    $("uploadProgressText").textContent = result.original || result.corrected ? "Complete · added to your transcript" : "Complete · no speech detected";
+    if (activeRecordingJob) await request(`/api/recording_jobs/${activeRecordingJob}/stop`);
+    if (recordingPhase === "uploading" && recordingXHR) recordingXHR.abort();
   } catch (error) {
-    $("uploadProgressText").textContent = `Upload failed: ${error.message}`;
+    stopRequested = false; refreshControls();
+    recordingStatus(`Could not stop: ${error.message}. Try Stop again.`);
+  }
+});
+async function handleFileUpload(file, retry = false) {
+  if (uploading) return;
+  if (!file.size) { recordingStatus("This file is empty. Choose an audio or video recording."); return; }
+  if (!/^(audio|video)\//.test(file.type) && !/\.(mp4|mov|mkv|mp3|wav|m4a|aac|flac|ogg|webm|avi|wma|aiff|opus)$/i.test(file.name)) {
+    recordingStatus("Choose an audio or video file, such as MP3, WAV, M4A or MP4."); return;
+  }
+  const segmentSeconds = retry && failedDocument ? failedDocument.segmentSeconds :
+    $("segmentLength").value === "custom" ? Number($("customSegmentLength").value) : parseInt($("segmentLength").value, 10);
+  if (!Number.isInteger(segmentSeconds) || segmentSeconds < 15 || segmentSeconds > 300) {
+    recordingStatus("Choose a segment length between 15 and 300 seconds."); return;
+  }
+  // Retrying replaces only the failed attempt; other recording documents stay intact.
+  const language = retry && failedDocument ? failedDocument.language : $("recordingLanguage").value;
+  if (retry && failedDocument) {
+    failedDocument.element.remove();
+    recordingDocuments = recordingDocuments.filter(doc => doc !== failedDocument);
+  }
+  failedDocument = null; lastRecordingFile = file; uploading = true;
+  stopRequested = false; activeRecordingJob = null; recordingXHR = null; recordingPhase = "starting";
+  $("stopRecordingBtn").textContent = "Cancel upload";
+  $("retryRecordingBtn").hidden = true;
+  $("uploadFileName").textContent = file.name;
+  $("uploadStatus").setAttribute("aria-busy", "true");
+  $("recordingResults").querySelector(".empty-state")?.remove();
+  const element = textElement("section", "recording-document", "");
+  element.append(textElement("h3", "", file.name));
+  const statusElement = textElement("p", "document-status", `${language} · Processing`);
+  element.append(statusElement); $("recordingResults").append(element);
+  const doc = { name: file.name, language, segmentSeconds, entries: [], element, status: "Processing" };
+  recordingDocuments.push(doc);
+  uploadStarted = Date.now();
+  const updateElapsed = () => { $("recordingElapsed").textContent = `Elapsed ${formatPosition((Date.now() - uploadStarted) / 1000)}`; };
+  $("recordingElapsed").hidden = false; updateElapsed(); uploadTimer = setInterval(updateElapsed, 1000);
+  refreshControls(); recordingStatus("Uploading…", 0, 100);
+  const form = new FormData(); form.append("file", file); form.append("language", language);
+  try {
+    const job = await request("/api/recording_jobs");
+    activeRecordingJob = job.job_id;
+    if (stopRequested) {
+      await request(`/api/recording_jobs/${activeRecordingJob}/stop`);
+    } else {
+    form.append("job_id", activeRecordingJob); form.append("segment_seconds", String(segmentSeconds));
+    recordingPhase = "uploading";
+    await uploadWithProgress(form, event => {
+      if (event.type === "stopped") stopRequested = true;
+      if (!stopRequested && event.type === "status") recordingStatus(event.stage + (event.total > 0 ? ` · ${event.completed} of ${event.total} segments` : "…"), event.completed, event.total);
+      if (event.type === "segment") {
+        appendRecordingSegment(doc, event);
+        if (!stopRequested) recordingStatus(`Translating · ${event.completed} of ${event.total} segments`, event.completed, event.total);
+      }
+    });
+    }
+    doc.status = stopRequested ? "Stopped · completed results kept" : doc.entries.length ? "Complete" : "Complete · no speech detected";
+    recordingStatus(doc.status, 1, 1);
+  } catch (error) {
+    doc.status = `Failed · ${error.message}`; failedDocument = doc;
+    recordingStatus(doc.status); $("retryRecordingBtn").hidden = false;
   } finally {
-    uploading = false;
+    statusElement.textContent = `${language} · ${doc.status}`;
+    uploading = false; recordingPhase = "idle"; recordingXHR = null; activeRecordingJob = null;
+    clearInterval(uploadTimer); updateElapsed();
     $("uploadStatus").setAttribute("aria-busy", "false");
-    $("mediaFileInput").value = ""; // Allow retrying the same file after an error.
+    $("recordingProgress").hidden = true;
+    $("mediaFileInput").value = "";
+    if (doc.status.startsWith("Stopped") || doc.status.startsWith("Failed")) {
+      const discard = textElement("button", "btn btn-quiet", "Discard these results");
+      discard.addEventListener("click", () => {
+        if (!window.confirm("Discard this recording’s results?")) return;
+        doc.element.remove(); recordingDocuments = recordingDocuments.filter(item => item !== doc);
+        if (!recordingDocuments.length) $("recordingResults").innerHTML = emptyRecordings;
+        refreshControls();
+      });
+      doc.element.append(discard);
+    }
     refreshControls();
   }
 }
+$("retryRecordingBtn").addEventListener("click", () => { if (lastRecordingFile) handleFileUpload(lastRecordingFile, true); });
 refreshControls();
 initWebSocket();

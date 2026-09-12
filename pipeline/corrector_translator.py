@@ -27,7 +27,8 @@ class CorrectorTranslator:
             return False
 
     def process(
-        self, raw_transcript: str, target_language: str = "Chinese"
+        self, raw_transcript: str, target_language: str = "Chinese",
+        context: str = "", max_tokens: int = 120, timeout: float = 10.0
     ) -> Dict[str, Any]:
         """Performs joint correction and translation in a single model call.
 
@@ -60,6 +61,10 @@ Input: "{raw_clean}"
 2. "t": Translate the corrected sentence into {target_lang_display}.
 Output ONLY: {{"c": "corrected sentence here", "t": "translation here"}}"""
 
+        if context:
+            prompt += "\nUse this neighboring text only for context. Do not include it in the output:\n" + context
+            prompt += "\nTranslate the entire Input faithfully without summarizing or omitting sentences."
+
         start_time = time.perf_counter()
 
         payload = {
@@ -70,13 +75,16 @@ Output ONLY: {{"c": "corrected sentence here", "t": "translation here"}}"""
             "options": {
                 "temperature": 0.1,  # Low temperature for deterministic corrections
                 "top_p": 0.9,
-                "num_predict": 120,  # Enough for full JSON: ~10 structure + ~30 English + ~50 CJK/Viet chars
+                "num_predict": max_tokens,  # Enough for full JSON: ~10 structure + ~30 English + ~50 CJK/Viet chars
             },
         }
 
+        if context:
+            payload["options"]["num_ctx"] = 16384
+
         try:
             response = requests.post(
-                self.generate_endpoint, json=payload, timeout=10.0
+                self.generate_endpoint, json=payload, timeout=timeout
             )
             elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
 
@@ -97,6 +105,7 @@ Output ONLY: {{"c": "corrected sentence here", "t": "translation here"}}"""
                     "translated": translated,
                     "errors_corrected": errors_detected,
                     "latency_ms": elapsed_ms,
+                    "error": None if translated else "Translation was unavailable. Check the local language model and retry.",
                 }
             else:
                 return {
@@ -105,6 +114,7 @@ Output ONLY: {{"c": "corrected sentence here", "t": "translation here"}}"""
                     "translated": f"Ollama HTTP {response.status_code}",
                     "errors_corrected": ["API error"],
                     "latency_ms": elapsed_ms,
+                    "error": "The local language model returned an error. Please retry.",
                 }
         except Exception as e:
             elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
@@ -114,6 +124,7 @@ Output ONLY: {{"c": "corrected sentence here", "t": "translation here"}}"""
                 "translated": f"Offline ({target_lang_display})",
                 "errors_corrected": [f"Correction error: {str(e)[:50]}"],
                 "latency_ms": elapsed_ms,
+                "error": "The local language model is unavailable. Check Ollama and retry.",
             }
 
     @staticmethod

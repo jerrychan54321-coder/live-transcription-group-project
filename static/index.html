@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#f5f7f8">
     <title>Classroom Live · Bilingual Translation</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=20260912-recording-controls-3">
   </head>
   <body>
     <a class="skip-link" href="#liveSubtitles">Skip to subtitles</a>
@@ -32,6 +32,17 @@
           </div>
           <span class="local-note">Local audio processing</span>
         </div>
+        <div class="workspace-bar">
+          <div class="workspace-tabs" role="tablist" aria-label="Transcription workspace">
+            <button id="liveTab" role="tab" aria-selected="true" aria-controls="liveWorkspace">Live transcription</button>
+            <button id="recordingTab" role="tab" aria-selected="false" aria-controls="recordingWorkspace" tabindex="-1">Recording transcription</button>
+          </div>
+          <div id="listeningBanner" class="listening-banner" hidden>
+            <span id="persistentLiveStatus">Live listening</span>
+            <button id="stopLiveBtn" class="btn btn-secondary">Stop listening</button>
+          </div>
+        </div>
+        <div id="liveWorkspace" role="tabpanel" aria-labelledby="liveTab">
         <div id="notice" class="notice" role="alert" hidden>
         </div>
         <!-- Keep these control IDs aligned with app.js; all actions use the existing FastAPI routes. -->
@@ -51,7 +62,7 @@
               <button class="lang-btn" id="btnLangVietnamese" aria-pressed="false">Tiếng Việt <span>Vietnamese</span>
               </button>
             </div>
-            <span class="control-hint">Applies to upcoming speech and uploads</span>
+            <span class="control-hint">Applies to upcoming live speech</span>
           </div>
           <div class="control-group record-control">
             <button id="toggleRecordBtn" class="btn btn-primary" disabled>
@@ -67,7 +78,7 @@
             <h2 id="subtitleHeading">
               <span class="live-dot" aria-hidden="true">
               </span>Live subtitles</h2>
-              <span class="stage-note" id="stageNote">Ready when you are</span>
+              <span id="liveSpinner" class="spinner" hidden aria-hidden="true"></span><span class="stage-note" id="stageNote" role="status">Ready when you are</span>
             </div>
             <!-- A single polite live region announces each complete bilingual result without moving focus. -->
             <div class="subtitle-card" aria-live="polite" aria-atomic="true">
@@ -102,53 +113,29 @@
               </span>
             </div>
           </section>
-          <div class="bottom-grid">
+
             <section class="panel history-panel" aria-labelledby="historyHeading">
               <div class="panel-header">
                 <div>
                   <p class="eyebrow">KEEP THE CONTEXT</p>
-                  <h2 id="historyHeading">Lecture transcript <span class="counter-badge" id="historyCount">0 entries</span>
+                  <h2 id="historyHeading">Live transcript <span class="counter-badge" id="historyCount">0 entries</span>
                   </h2>
                 </div>
                 <div class="history-actions">
+                  <label class="timestamp-option"><input id="liveTimestamps" type="checkbox" checked> Show timestamps</label>
                   <button id="exportBtn" class="btn btn-secondary" disabled>Export .txt</button>
                   <button id="clearBtn" class="btn btn-quiet" disabled>Clear</button>
                 </div>
               </div>
-              <p class="panel-desc">Latest speech first. Saved in this tab until you clear or reload.</p>
+              <p class="panel-desc">Latest speech first. Timestamps show session time when speech reaches processing. Saved until you clear or reload.</p>
               <div class="history-list" id="historyList" tabindex="0" aria-label="Lecture transcript history">
                 <div class="empty-state">
                   <span class="empty-icon" aria-hidden="true">≡</span>
                   <h3>Make room for your next idea.</h3>
-                  <p>Start listening or upload a recording.<br>Your English and translated transcript will appear here.</p>
+                  <p>Start listening to begin your live transcript.<br>Your English and translated transcript will appear here.</p>
                 </div>
               </div>
             </section>
-            <section class="panel media-panel" aria-labelledby="mediaHeading">
-              <div class="panel-header">
-                <div>
-                  <p class="eyebrow">LEARN AT YOUR OWN PACE</p>
-                  <h2 id="mediaHeading">Have a recording?</h2>
-                </div>
-                <span class="file-tag">AUDIO / VIDEO</span>
-              </div>
-              <p class="panel-desc">Turn a recorded lecture into corrected English and a translation.</p>
-              <input type="file" id="mediaFileInput" accept="audio/*,video/*,.mkv,.m4a,.mov" hidden>
-              <button type="button" class="upload-dropzone" id="dropzone">
-                <span class="upload-icon" aria-hidden="true">↑</span>
-                <strong>Choose a recording</strong>
-                <span>or drag and drop it here</span>
-                <small>MP4, MOV, MKV, MP3, WAV, M4A & more</small>
-              </button>
-              <div class="upload-status" id="uploadStatus" role="status" hidden>
-                <strong id="uploadFileName">
-                </strong>
-                <span id="uploadProgressText">
-                </span>
-              </div>
-              <p class="upload-note">Audio is processed by your local server.</p>
-            </section>
-          </div>
           <!-- Assignment evidence remains available without competing with the classroom reading surface. -->
           <details class="pipeline-details">
             <summary>Processing details <span>Pipeline & timing</span>
@@ -166,13 +153,76 @@
               <p class="timing-note">The classroom target is approximately 3 seconds end to end. Reported processing time excludes capture, queueing, media normalization and display delivery; live speech detection uses the server’s fixed 10 ms estimate.</p>
             </div>
           </details>
+
+        </div>
+        <div id="recordingWorkspace" role="tabpanel" aria-labelledby="recordingTab" hidden>
+          <div class="recording-grid">
+            <section class="panel media-panel" aria-labelledby="mediaHeading">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">LEARN AT YOUR OWN PACE</p>
+                  <h2 id="mediaHeading">Transcribe a recording</h2>
+                </div>
+                <span class="file-tag">AUDIO / VIDEO</span>
+              </div>
+              <p class="panel-desc">Upload audio or video. Read corrected English and translations in recording order.</p>
+              <label for="recordingLanguage">Translate English to</label>
+              <select id="recordingLanguage"><option value="Chinese">Chinese</option><option value="Vietnamese">Vietnamese</option></select>
+              <label for="segmentLength">Translation segment length</label>
+              <select id="segmentLength">
+                <option value="60">Auto · about 60 seconds</option>
+                <option value="30">30 seconds</option><option value="60-fixed">60 seconds</option>
+                <option value="120">120 seconds</option><option value="custom">Custom</option>
+              </select>
+              <div id="customSegmentField" hidden><label for="customSegmentLength">Target seconds (15–300)</label>
+                <input id="customSegmentLength" type="number" min="15" max="300" step="1" value="60">
+              </div>
+              <p class="panel-desc">Lengths are approximate. Passages end at sentence boundaries where possible and use neighboring text for context.</p>
+              <input type="file" id="mediaFileInput" accept="audio/*,video/*,.mkv,.m4a,.mov" hidden>
+              <button type="button" class="upload-dropzone" id="dropzone">
+                <span class="upload-icon" aria-hidden="true">↑</span>
+                <strong>Choose a recording</strong>
+                <span>or drag and drop it here</span>
+                <small>MP4, MOV, MKV, MP3, WAV, M4A & more</small>
+              </button>
+              <p id="selectedRecordingName" class="panel-desc">No recording selected.</p>
+              <div class="recording-actions">
+                <button id="startRecordingBtn" class="btn btn-primary" disabled>Start transcription</button>
+                <button id="stopRecordingBtn" class="btn btn-secondary" hidden>Cancel upload</button>
+              </div>
+              <div class="upload-status" id="uploadStatus" role="status" hidden>
+                <strong id="uploadFileName">
+                </strong>
+                <span id="uploadProgressText">
+                </span>
+              </div>
+              <progress id="recordingProgress" max="100" value="0" aria-label="Recording progress" hidden></progress>
+              <p id="recordingElapsed" class="panel-desc" hidden></p>
+              <button id="retryRecordingBtn" class="btn btn-secondary" hidden>Retry recording</button>
+              <p class="upload-note">Audio is processed by your local server.</p>
+            </section>
+
+            <section class="panel recording-results" aria-labelledby="recordingResultsHeading">
+              <div class="panel-header">
+                <div><p class="eyebrow">YOUR RECORDINGS</p><h2 id="recordingResultsHeading" tabindex="-1">Recording transcripts</h2></div>
+                <div class="history-actions">
+                  <label class="timestamp-option"><input id="recordingTimestamps" type="checkbox" checked> Show timestamps</label>
+                  <button id="recordingExportBtn" class="btn btn-secondary" disabled>Export .txt</button>
+                  <button id="recordingClearBtn" class="btn btn-quiet" disabled>Clear</button>
+                </div>
+              </div>
+              <p class="panel-desc">Timestamps are positions in the recording. Results stay here until you clear or reload.</p>
+              <div id="recordingResults"><div class="empty-state"><h3>Your recording transcript will appear here.</h3><p>Choose a file to get started. Completed segments appear as they are translated.</p></div></div>
+            </section>
+          </div>
+        </div>
         </main>
         <footer>
           <span>Classroom Live <span aria-hidden="true">/</span> ADI205 / 501</span>
           <span>Listen. Understand. Keep learning.</span>
         </footer>
       </div>
-      <script src="/static/app.js">
+      <script src="/static/app.js?v=20260912-recording-controls-3">
       </script>
     </body>
   </html>

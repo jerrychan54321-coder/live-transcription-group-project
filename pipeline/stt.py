@@ -36,7 +36,7 @@ class SpeechToTextTranscriber:
         print(f"[STT] Model '{model_size}' loaded successfully.")
 
     def transcribe(
-        self, audio_data: np.ndarray, beam_size: int = 3
+        self, audio_data: np.ndarray, beam_size: int = 3, should_cancel=None
     ) -> Dict[str, Any]:
         """Transcribes 16kHz mono float32 audio chunk into text.
 
@@ -60,6 +60,9 @@ class SpeechToTextTranscriber:
         full_text = []
 
         for seg in segments:
+            if should_cancel and should_cancel():
+                from pipeline.recording import RecordingCancelled
+                raise RecordingCancelled()
             full_text.append(seg.text.strip())
             segment_list.append(
                 {
