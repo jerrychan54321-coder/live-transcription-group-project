@@ -71,7 +71,8 @@ event_loop = None
 stt_thread = None
 llm_thread = None
 is_pipeline_active = False
-stt_results_queue: queue.Queue = queue.Queue(maxsize=5)
+# Text-only backlog: a slow translator must never block speech recognition.
+stt_results_queue: queue.Queue = queue.Queue()
 
 
 class LanguagePayload(BaseModel):
@@ -110,6 +111,11 @@ def live_status(stage, active, error=None):
         }), event_loop)
 
 
+def send_live(message):
+    if event_loop and event_loop.is_running():
+        asyncio.run_coroutine_threadsafe(broadcast_ws(message), event_loop)
+
+
 def _stt_worker():
     """Thread 1: Retrieves VAD speech chunks, runs Whisper, and pushes text to stt_results_queue.
 
@@ -135,6 +141,15 @@ def _stt_worker():
             stt_result["elapsed_s"] = round(elapsed, 2)
             raw_text = stt_result["text"].strip()
             if raw_text and len(raw_text) >= 2:
+                stt_result["segment_id"] = uuid.uuid4().hex
+                stt_result["language"] = active_language
+                send_live({
+                    "type": "live_transcript", "source": "live",
+                    "segment_id": stt_result["segment_id"],
+                    "language": stt_result["language"], "original": raw_text,
+                    "elapsed_s": stt_result["elapsed_s"],
+                    "stt_latency_ms": stt_result["latency_ms"],
+                })
                 stt_results_queue.put((raw_text, stt_result))
         except Exception as e:
             print(f"[STT Worker Error] {e}")
@@ -160,7 +175,7 @@ def _llm_worker():
         try:
             # Joint correction and translation via Ollama Qwen 2.5
             # Snapshot the target before inference so a UI language switch cannot mislabel this result.
-            result_language = active_language
+            result_language = stt_result["language"]
             live_status("Translating", True)
             llm_result = llm_engine.process(raw_text, target_language=result_language)
             if llm_result.get("error"):
@@ -173,6 +188,9 @@ def _llm_worker():
             payload = {
                 "type": "result",
                 "source": "live",
+                "segment_id": stt_result["segment_id"],
+                "translationState": "failed" if llm_result.get("error") else "complete",
+                "error": llm_result.get("error"),
                 "elapsed_s": stt_result.get("elapsed_s", 0),
                 "language": result_language,
                 "original": llm_result["original"],
@@ -196,6 +214,11 @@ def _llm_worker():
                 )
         except Exception as e:
             print(f"[LLM Worker Error] {e}")
+            send_live({"type": "result", "source": "live",
+                       "segment_id": stt_result["segment_id"],
+                       "original": raw_text, "language": stt_result["language"],
+                       "elapsed_s": stt_result.get("elapsed_s", 0),
+                       "translationState": "failed", "error": "Translation failed"})
             live_status("Translating", False, "Translation failed. Please try again.")
         finally:
             live_status("Translating", False)
