@@ -133,7 +133,9 @@ def _llm_worker():
 
         try:
             # Joint correction and translation via Ollama Qwen 2.5
-            llm_result = llm_engine.process(raw_text, target_language=active_language)
+            # Snapshot the target before inference so a UI language switch cannot mislabel this result.
+            result_language = active_language
+            llm_result = llm_engine.process(raw_text, target_language=result_language)
 
             total_latency = round(
                 stt_result["latency_ms"] + llm_result["latency_ms"] + 10.0, 1
@@ -141,6 +143,7 @@ def _llm_worker():
 
             payload = {
                 "type": "result",
+                "language": result_language,
                 "original": llm_result["original"],
                 "corrected": llm_result["corrected"],
                 "translated": llm_result["translated"],
@@ -254,8 +257,10 @@ async def upload_media(file: UploadFile = File(...)):
         raw_text = stt_result["text"].strip()
 
         # Correct & Translate
+        # Return the actual inference language for correct subtitle and export labels.
+        result_language = active_language
         llm_result = llm_engine.process(
-            raw_text, target_language=active_language
+            raw_text, target_language=result_language
         )
 
         total_latency = round(
@@ -264,6 +269,7 @@ async def upload_media(file: UploadFile = File(...)):
 
         result_payload = {
             "type": "result",
+            "language": result_language,
             "original": llm_result["original"],
             "corrected": llm_result["corrected"],
             "translated": llm_result["translated"],
@@ -295,7 +301,9 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.send_json(
         {"type": "devices", "devices": devices, "selected": active_device_index}
     )
-    await websocket.send_json({"type": "state", "is_recording": is_rec})
+    await websocket.send_json(
+        {"type": "state", "is_recording": is_rec, "language": active_language}
+    )
 
     try:
         while True:
