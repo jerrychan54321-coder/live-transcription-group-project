@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#f5f7f8">
     <title>Classroom Live · Bilingual Translation</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260912-recording-controls-3">
+    <link rel="stylesheet" href="/static/style.css?v=20260912-streaming-transcription-1">
   </head>
   <body>
     <a class="skip-link" href="#liveSubtitles">Skip to subtitles</a>
@@ -165,7 +165,11 @@
                 </div>
                 <span class="file-tag">AUDIO / VIDEO</span>
               </div>
-              <p class="panel-desc">Upload audio or video. Read corrected English and translations in recording order.</p>
+              <p class="panel-desc">Upload audio or video. English appears as speech is recognized. Optionally add corrections and translation afterward.</p>
+              <label for="recordingMode">Transcription mode</label>
+              <select id="recordingMode"><option value="translate">Transcription + translation</option><option value="transcribe">Transcription only</option></select>
+              <p id="transcriptionOnlyNote" class="panel-desc" hidden>English transcription only. Automatic correction is not applied.</p>
+              <div id="recordingTranslationSettings">
               <label for="recordingLanguage">Translate English to</label>
               <select id="recordingLanguage"><option value="Chinese">Chinese</option><option value="Vietnamese">Vietnamese</option></select>
               <label for="segmentLength">Translation segment length</label>
@@ -178,6 +182,7 @@
                 <input id="customSegmentLength" type="number" min="15" max="300" step="1" value="60">
               </div>
               <p class="panel-desc">Lengths are approximate. Passages end at sentence boundaries where possible and use neighboring text for context.</p>
+              </div>
               <input type="file" id="mediaFileInput" accept="audio/*,video/*,.mkv,.m4a,.mov" hidden>
               <button type="button" class="upload-dropzone" id="dropzone">
                 <span class="upload-icon" aria-hidden="true">↑</span>
@@ -212,7 +217,7 @@
                 </div>
               </div>
               <p class="panel-desc">Timestamps are positions in the recording. Results stay here until you clear or reload.</p>
-              <div id="recordingResults"><div class="empty-state"><h3>Your recording transcript will appear here.</h3><p>Choose a file to get started. Completed segments appear as they are translated.</p></div></div>
+              <div id="recordingResults"><div class="empty-state"><h3>Your recording transcript will appear here.</h3><p>Choose a file to get started. English appears as speech is recognized; optional translations follow after transcription finishes.</p></div></div>
             </section>
           </div>
         </div>
@@ -222,7 +227,7 @@
           <span>Listen. Understand. Keep learning.</span>
         </footer>
       </div>
-      <script src="/static/app.js?v=20260912-recording-controls-3">
+      <script src="/static/app.js?v=20260912-streaming-transcription-1">
       </script>
     </body>
   </html>

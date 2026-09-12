@@ -303,11 +303,13 @@ def stop_recording_job(job_id: str):
 
 @app.post("/api/upload_media")
 def upload_media(file: UploadFile = File(...), language: str = Form("Chinese"),
-                 segment_seconds: int = Form(60), job_id: str = Form(...)):
+                 segment_seconds: int = Form(60), job_id: str = Form(...), mode: str = Form("translate")):
     """Stream recording progress on this request only, off the live event loop."""
-    if language not in {"Chinese", "Vietnamese"}:
+    if mode not in {"translate", "transcribe"}:
+        raise HTTPException(400, "Unsupported recording mode")
+    if mode == "translate" and language not in {"Chinese", "Vietnamese"}:
         raise HTTPException(400, "Unsupported translation language")
-    if stt_engine is None or llm_engine is None:
+    if stt_engine is None or (mode == "translate" and llm_engine is None):
         raise HTTPException(503, "The transcription engine is not ready")
     if not 15 <= segment_seconds <= 300:
         raise HTTPException(400, "Segment length must be between 15 and 300 seconds")
@@ -340,7 +342,8 @@ def upload_media(file: UploadFile = File(...), language: str = Form("Chinese"),
         try:
             for event in recording_events(tmp_path, language,
                     MediaNormalizer.load_normalized_audio, stt_engine, llm_engine,
-                    target_seconds=segment_seconds, cancelled=job["cancel"].is_set):
+                    target_seconds=segment_seconds if mode == "translate" else 60,
+                    cancelled=job["cancel"].is_set, mode=mode):
                 yield json.dumps(event, ensure_ascii=False) + "\n"
         except Exception as exc:
             print(f"[Recording Error] {exc}")

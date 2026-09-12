@@ -5,7 +5,7 @@ from pipeline.recording import recording_events, group_segments
 
 class RecordingEventsTests(unittest.TestCase):
     def events(self, segments, translator=None):
-        stt = SimpleNamespace(transcribe=lambda audio, **kwargs: {"segments": segments})
+        stt = SimpleNamespace(transcribe_segments=lambda audio, **kwargs: iter(segments))
         translator = translator or SimpleNamespace(process=lambda text, target_language, **kwargs: {
             "original": text, "corrected": text, "translated": target_language,
         })
@@ -59,8 +59,8 @@ class RecordingEventsTests(unittest.TestCase):
             self.assertGreaterEqual(kwargs["max_tokens"], 1024)
             state["cancelled"] = True
             return {"original": text}
-        stt = SimpleNamespace(transcribe=lambda audio, **kwargs: {"segments": [
-            {"text": "First.", "start": 0, "end": 30}, {"text": "Second.", "start": 31, "end": 62}]})
+        stt = SimpleNamespace(transcribe_segments=lambda audio, **kwargs: iter([
+            {"text": "First.", "start": 0, "end": 30}, {"text": "Second.", "start": 31, "end": 62}]))
         events = list(recording_events("file", "Chinese", lambda p: b"audio", stt,
             SimpleNamespace(process=translate), target_seconds=30, cancelled=lambda: state["cancelled"]))
         self.assertEqual(state["calls"], 1)
@@ -78,12 +78,53 @@ class RecordingEventsTests(unittest.TestCase):
         translator = SimpleNamespace(process=lambda text, **kwargs: calls.append(text) or {"original": text})
         stream = self.events([{"text": "one", "start": 0, "end": 1.5},
                               {"text": "two", "start": 2, "end": 3}], translator)
-        for _ in range(3):
+        for _ in range(2):
             next(stream)
-        self.assertEqual(calls, [])
         self.assertEqual(next(stream)["original"], "one")
-        self.assertEqual(calls, ["one"])
         self.assertEqual(next(stream)["original"], "two")
+        transcript = next(stream)
+        self.assertEqual(transcript["type"], "transcript")
+        self.assertEqual([s["original"] for s in transcript["segments"]], ["one", "two"])
+        self.assertEqual([s["segment_id"] for s in transcript["segments"]], [0, 1])
+        self.assertEqual(calls, [])
+        self.assertEqual(next(stream)["stage"], "Translating")
+        self.assertEqual(next(stream)["type"], "translating")
+        self.assertEqual(calls, [])
+        first = next(stream)
+        self.assertEqual((first["segment_id"], first["original"]), (0, "one"))
+        self.assertEqual(calls, ["one"])
+        self.assertEqual(next(stream)["segment_id"], 1)
+        second = next(stream)
+        self.assertEqual((second["segment_id"], second["original"]), (1, "two"))
+
+    def test_transcription_only_yields_before_consuming_next_segment(self):
+        consumed = []
+        def recognize(*args, **kwargs):
+            for text, end in [("First", 2), ("sentence.", 5), ("Next.", 9)]:
+                consumed.append(text)
+                yield {"text": text, "start": end - 2, "end": end}
+        stream = recording_events("file", "English", lambda p: bytes(16000 * 10),
+            SimpleNamespace(transcribe_segments=recognize), None, target_seconds=4, mode="transcribe")
+        next(stream); next(stream)
+        first = next(stream)
+        self.assertEqual(consumed, ["First"])
+        self.assertEqual((first["segment_id"], first["original"], first["duration_s"]), (0, "First", 10))
+        second = next(stream)
+        self.assertEqual((second["segment_id"], second["original"], second["end"]), (0, "First sentence.", 5))
+        third = next(stream)
+        self.assertEqual((third["segment_id"], third["original"]), (1, "Next."))
+        self.assertEqual(list(stream), [{"type": "complete", "total": 2}])
+
+    def test_stop_during_transcription_keeps_published_text(self):
+        state = {"cancelled": False}
+        def recognize(*args, **kwargs):
+            yield {"text": "Keep this.", "start": 0, "end": 2}
+            state["cancelled"] = True
+            yield {"text": "Do not publish.", "start": 2, "end": 4}
+        events = list(recording_events("file", "English", lambda p: bytes(16000 * 5),
+            SimpleNamespace(transcribe_segments=recognize), None, mode="transcribe", cancelled=lambda: state["cancelled"]))
+        self.assertEqual([e["original"] for e in events if e["type"] == "transcript_segment"], ["Keep this."])
+        self.assertEqual(events[-1]["type"], "stopped")
 
 
 if __name__ == "__main__":

@@ -47,7 +47,19 @@ class SpeechToTextTranscriber:
 
         start_time = time.perf_counter()
 
-        # faster-whisper expects 16kHz float32 audio
+        segment_list = list(self.transcribe_segments(audio_data, beam_size, should_cancel))
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
+        return {
+            "text": " ".join(segment["text"] for segment in segment_list).strip(),
+            "latency_ms": elapsed_ms,
+            "duration_s": round(len(audio_data) / 16000.0, 2),
+            "segments": segment_list,
+        }
+
+    def transcribe_segments(self, audio_data, beam_size=3, should_cancel=None):
+        """Yield recognized segments immediately; callers control consumption."""
+        if len(audio_data) == 0:
+            return
         segments, info = self.model.transcribe(
             audio_data,
             beam_size=beam_size,
@@ -56,28 +68,16 @@ class SpeechToTextTranscriber:
             vad_filter=False,  # Audio is already pre-filtered by our Silero VAD module
         )
 
-        segment_list: List[Dict[str, Any]] = []
-        full_text = []
-
-        for seg in segments:
+        segments = iter(segments)
+        while True:
             if should_cancel and should_cancel():
                 from pipeline.recording import RecordingCancelled
                 raise RecordingCancelled()
-            full_text.append(seg.text.strip())
-            segment_list.append(
-                {
-                    "start": round(seg.start, 2),
-                    "end": round(seg.end, 2),
-                    "text": seg.text.strip(),
-                }
-            )
-
-        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
-        joined_text = " ".join(full_text).strip()
-
-        return {
-            "text": joined_text,
-            "latency_ms": elapsed_ms,
-            "duration_s": round(len(audio_data) / 16000.0, 2),
-            "segments": segment_list,
-        }
+            try:
+                seg = next(segments)
+            except StopIteration:
+                return
+            if should_cancel and should_cancel():
+                from pipeline.recording import RecordingCancelled
+                raise RecordingCancelled()
+            yield {"start": round(seg.start, 2), "end": round(seg.end, 2), "text": seg.text.strip()}

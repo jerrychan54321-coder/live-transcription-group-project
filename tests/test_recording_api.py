@@ -24,10 +24,10 @@ class RecordingAPITests(unittest.TestCase):
                 if not release.wait(5):
                     raise RuntimeError('Test release timed out')
             return {'original': text, 'corrected': text, 'translated': 'translated'}
-        stt = SimpleNamespace(transcribe=lambda *args, **kwargs: {'segments': [
+        stt = SimpleNamespace(transcribe_segments=lambda *args, **kwargs: iter([
             {'text': 'First.', 'start': 0, 'end': 30},
             {'text': 'Second.', 'start': 31, 'end': 62},
-            {'text': 'Third.', 'start': 63, 'end': 94}]})
+            {'text': 'Third.', 'start': 63, 'end': 94}]))
         response = []
         with patch.object(main, 'stt_engine', stt), patch.object(main, 'llm_engine', SimpleNamespace(process=translate)), patch.object(main.MediaNormalizer, 'load_normalized_audio', return_value=b'audio'):
             job = client.post('/api/recording_jobs').json()['job_id']
@@ -58,3 +58,19 @@ class RecordingAPITests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json(), {'type': 'stopped', 'completed': 0})
             normalize.assert_not_called()
+
+    def test_transcription_only_without_language_model_and_invalid_mode(self):
+        client = TestClient(main.app)
+        stt = SimpleNamespace(transcribe_segments=lambda *args, **kwargs: iter([
+            {'text': 'English only.', 'start': 0, 'end': 3}]))
+        with patch.object(main, 'stt_engine', stt), patch.object(main, 'llm_engine', None), patch.object(main.MediaNormalizer, 'load_normalized_audio', return_value=bytes(16000 * 5)):
+            job = client.post('/api/recording_jobs').json()['job_id']
+            response = client.post('/api/upload_media', data={'job_id': job, 'mode': 'invalid'}, files={'file': ('test.wav', b'test')})
+            self.assertEqual(response.status_code, 400)
+            response = client.post('/api/upload_media', data={'job_id': job, 'mode': 'transcribe', 'language': 'English'}, files={'file': ('test.wav', b'test')})
+            self.assertEqual(response.status_code, 200)
+            events = [json.loads(line) for line in response.text.splitlines()]
+            self.assertEqual([e['original'] for e in events if e['type'] == 'transcript_segment'], ['English only.'])
+            self.assertFalse(any(e['type'] in {'translating', 'segment'} for e in events))
+            self.assertEqual(events[-1], {'type': 'complete', 'total': 1})
+            self.assertNotIn(job, main.recording_jobs)

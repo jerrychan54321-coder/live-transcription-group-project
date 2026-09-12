@@ -54,6 +54,7 @@ function refreshControls() {
   $("btnLangChinese").disabled = $("btnLangVietnamese").disabled = !connected || busy;
   $("dropzone").disabled = uploading;
   $("recordingLanguage").disabled = uploading;
+  $("recordingMode").disabled = uploading;
   $("segmentLength").disabled = $("customSegmentLength").disabled = uploading;
   $("startRecordingBtn").disabled = uploading || !selectedRecordingFile;
   $("stopRecordingBtn").hidden = !uploading;
@@ -314,6 +315,10 @@ $("stopLiveBtn").addEventListener("click", () => runAction(async () => {
   updateRecordingState(result.is_recording);
 }));
 function entryText(item, timestamp) {
+  if (item.translationState === "omitted") return `${timestamp ? `[${timestamp}] ` : ""}English · transcribed\n${item.original || ""}\nAutomatic correction not applied.`;
+  if (item.translationState && item.translationState !== "complete") {
+    return `${timestamp ? `[${timestamp}] ` : ""}${item.language}\nEnglish (draft, uncorrected): ${item.original || ""}\nTranslation: ${recordingTranslationText(item)}`;
+  }
   return `${timestamp ? `[${timestamp}] ` : ""}${item.language}\nOriginal: ${item.original || ""}\nCorrected: ${item.corrected || item.original || ""}\nTranslation: ${item.translated || "Translation unavailable"}\nCorrections: ${(item.errors_corrected || []).join("; ")}`;
 }
 function downloadTranscript(prefix, heading, text) {
@@ -345,12 +350,18 @@ function recordingStatus(message, completed = null, total = null) {
   else progress.removeAttribute("value");
 }
 function appendRecordingSegment(doc, item) {
+  const existing = doc.entries.find(entry => entry.segment_id === item.segment_id);
+  if (existing) {
+    Object.assign(existing, item);
+    updateRecordingSegment(doc, existing);
+    return;
+  }
   doc.entries.push(item);
   const entry = textElement("article", "history-item", "");
   entry.append(textElement("div", "timestamp hist-time", `${formatPosition(item.start)}–${formatPosition(item.end)}`));
-  entry.append(textElement("div", "line-label", `ENGLISH · CORRECTED`));
+  entry.append(textElement("div", "line-label english-label", ""));
   entry.append(textElement("div", "hist-en", item.corrected || item.original || "—"));
-  entry.append(textElement("div", "line-label", `${languageNames[item.language]} · TRANSLATION`));
+  entry.append(textElement("div", "line-label translation-label", `${languageNames[item.language] || item.language} · TRANSLATION`));
   const translation = textElement("div", "hist-trans", item.translated || "Translation unavailable");
   translation.lang = languageCodes[item.language]; entry.append(translation);
   const details = document.createElement("details");
@@ -358,6 +369,30 @@ function appendRecordingSegment(doc, item) {
   details.append(textElement("p", "", item.original || "—"));
   details.append(textElement("p", "", (item.errors_corrected || []).join(" · ") || "No corrections"));
   entry.append(details); doc.element.append(entry);
+  doc.rows.set(item.segment_id, entry);
+  updateRecordingSegment(doc, item);
+}
+function recordingTranslationText(item) {
+  const states = { pending: "Translation pending…", translating: "Translating…", stopped: "Translation stopped", failed: "Translation unavailable" };
+  return states[item.translationState] || item.translated || "Translation unavailable";
+}
+function updateRecordingSegment(doc, item) {
+  const entry = doc.rows.get(item.segment_id);
+  const draft = item.translationState !== "complete";
+  const transcriptionOnly = doc.mode === "transcribe";
+  entry.querySelector(".timestamp").textContent = `${formatPosition(item.start)}–${formatPosition(item.end)}`;
+  entry.querySelector(".english-label").textContent = transcriptionOnly ? "ENGLISH · TRANSCRIBED" : draft ? "ENGLISH · DRAFT (UNCORRECTED)" : "ENGLISH · CORRECTED";
+  entry.querySelector(".hist-en").textContent = draft ? item.original : item.corrected || item.original;
+  const translation = entry.querySelector(".hist-trans");
+  translation.hidden = transcriptionOnly;
+  entry.querySelector(".translation-label").hidden = transcriptionOnly;
+  translation.textContent = recordingTranslationText(item);
+  translation.classList.toggle("translation-pending", item.translationState !== "complete");
+  const details = entry.querySelector("details");
+  details.hidden = draft;
+  const paragraphs = details.querySelectorAll("p");
+  paragraphs[0].textContent = item.original || "—";
+  paragraphs[1].textContent = (item.errors_corrected || []).join(" · ") || "No corrections";
 }
 function uploadWithProgress(form, onEvent) {
   return new Promise((resolve, reject) => {
@@ -412,6 +447,11 @@ function selectRecordingFile(file) {
   refreshControls();
 }
 $("segmentLength").addEventListener("change", () => { $("customSegmentField").hidden = $("segmentLength").value !== "custom"; });
+$("recordingMode").addEventListener("change", () => {
+  const transcriptionOnly = $("recordingMode").value === "transcribe";
+  $("recordingTranslationSettings").hidden = transcriptionOnly;
+  $("transcriptionOnlyNote").hidden = !transcriptionOnly;
+});
 $("startRecordingBtn").addEventListener("click", () => { if (selectedRecordingFile) handleFileUpload(selectedRecordingFile); });
 $("stopRecordingBtn").addEventListener("click", async () => {
   if (!uploading || stopRequested) return;
@@ -431,13 +471,14 @@ async function handleFileUpload(file, retry = false) {
   if (!/^(audio|video)\//.test(file.type) && !/\.(mp4|mov|mkv|mp3|wav|m4a|aac|flac|ogg|webm|avi|wma|aiff|opus)$/i.test(file.name)) {
     recordingStatus("Choose an audio or video file, such as MP3, WAV, M4A or MP4."); return;
   }
-  const segmentSeconds = retry && failedDocument ? failedDocument.segmentSeconds :
+  const mode = retry && failedDocument ? failedDocument.mode : $("recordingMode").value;
+  const segmentSeconds = mode === "transcribe" ? 60 : retry && failedDocument ? failedDocument.segmentSeconds :
     $("segmentLength").value === "custom" ? Number($("customSegmentLength").value) : parseInt($("segmentLength").value, 10);
   if (!Number.isInteger(segmentSeconds) || segmentSeconds < 15 || segmentSeconds > 300) {
     recordingStatus("Choose a segment length between 15 and 300 seconds."); return;
   }
   // Retrying replaces only the failed attempt; other recording documents stay intact.
-  const language = retry && failedDocument ? failedDocument.language : $("recordingLanguage").value;
+  const language = mode === "transcribe" ? "English" : retry && failedDocument ? failedDocument.language : $("recordingLanguage").value;
   if (retry && failedDocument) {
     failedDocument.element.remove();
     recordingDocuments = recordingDocuments.filter(doc => doc !== failedDocument);
@@ -453,13 +494,15 @@ async function handleFileUpload(file, retry = false) {
   element.append(textElement("h3", "", file.name));
   const statusElement = textElement("p", "document-status", `${language} · Processing`);
   element.append(statusElement); $("recordingResults").append(element);
-  const doc = { name: file.name, language, segmentSeconds, entries: [], element, status: "Processing" };
+  if (mode === "transcribe") element.append(textElement("p", "panel-desc", "Automatic correction is not applied."));
+  const doc = { name: file.name, language, mode, segmentSeconds, entries: [], rows: new Map(), element, status: "Processing" };
   recordingDocuments.push(doc);
   uploadStarted = Date.now();
   const updateElapsed = () => { $("recordingElapsed").textContent = `Elapsed ${formatPosition((Date.now() - uploadStarted) / 1000)}`; };
   $("recordingElapsed").hidden = false; updateElapsed(); uploadTimer = setInterval(updateElapsed, 1000);
   refreshControls(); recordingStatus("Uploading…", 0, 100);
   const form = new FormData(); form.append("file", file); form.append("language", language);
+  form.append("mode", mode);
   try {
     const job = await request("/api/recording_jobs");
     activeRecordingJob = job.job_id;
@@ -470,19 +513,50 @@ async function handleFileUpload(file, retry = false) {
     recordingPhase = "uploading";
     await uploadWithProgress(form, event => {
       if (event.type === "stopped") stopRequested = true;
-      if (!stopRequested && event.type === "status") recordingStatus(event.stage + (event.total > 0 ? ` · ${event.completed} of ${event.total} segments` : "…"), event.completed, event.total);
+      if (event.type === "transcript_segment") {
+        appendRecordingSegment(doc, { ...event, language, translationState: mode === "transcribe" ? "omitted" : "pending" });
+      }
+      if (!stopRequested && ["transcript_segment", "transcription_progress"].includes(event.type)) {
+        const message = `Transcribing · ${formatPosition(event.processed_s)} of ${formatPosition(event.duration_s)} processed`;
+        recordingStatus(message, event.processed_s, event.duration_s);
+        statusElement.textContent = `${language} · ${message}`;
+      }
+      if (event.type === "transcript") {
+        for (const item of event.segments) appendRecordingSegment(doc, { ...item, language: event.language, translationState: "pending" });
+      }
+      if (event.type === "translating") {
+        const item = doc.entries.find(item => item.segment_id === event.segment_id);
+        if (item) { item.translationState = "translating"; updateRecordingSegment(doc, item); }
+      }
+      if (!stopRequested && (event.type === "status" || event.type === "translating" || event.type === "transcript")) {
+        const message = event.total > 0
+          ? `Transcript ready · ${event.type === "translating" ? `Translating paragraph ${event.segment_id + 1} of ${event.total}` : `${event.completed || 0} of ${event.total} paragraphs translated`}`
+          : event.type === "status" ? event.stage + "…" : "No speech detected";
+        recordingStatus(message, event.completed || 0, event.total);
+        statusElement.textContent = `${language} · ${message}`;
+      }
       if (event.type === "segment") {
-        appendRecordingSegment(doc, event);
-        if (!stopRequested) recordingStatus(`Translating · ${event.completed} of ${event.total} segments`, event.completed, event.total);
+        appendRecordingSegment(doc, { ...event, translationState: event.error ? "failed" : "complete" });
+        if (!stopRequested) {
+          const message = `Transcript ready · ${event.completed} of ${event.total} paragraphs translated`;
+          recordingStatus(message, event.completed, event.total);
+          statusElement.textContent = `${language} · ${message}`;
+        }
       }
     });
     }
-    doc.status = stopRequested ? "Stopped · completed results kept" : doc.entries.length ? "Complete" : "Complete · no speech detected";
+    doc.status = stopRequested ? (mode === "transcribe" ? "Stopped · partial transcript kept" : "Stopped · transcript and completed translations kept") : doc.entries.length ? "Complete" : "Complete · no speech detected";
     recordingStatus(doc.status, 1, 1);
   } catch (error) {
     doc.status = `Failed · ${error.message}`; failedDocument = doc;
     recordingStatus(doc.status); $("retryRecordingBtn").hidden = false;
   } finally {
+    for (const item of doc.entries) {
+      if (["pending", "translating"].includes(item.translationState)) {
+        item.translationState = stopRequested ? "stopped" : "failed";
+        updateRecordingSegment(doc, item);
+      }
+    }
     statusElement.textContent = `${language} · ${doc.status}`;
     uploading = false; recordingPhase = "idle"; recordingXHR = null; activeRecordingJob = null;
     clearInterval(uploadTimer); updateElapsed();

@@ -8,7 +8,11 @@ let mode = 'success';
 const uploads = [], actions = [];
 const assetRequests = [];
 let stopped = false;
-const segment = { type: 'segment', source: 'recording', original: '<script>lecture</script>', corrected: 'Recorded lecture', translated: 'Bài giảng', language: 'Vietnamese', start: 125, end: 132, completed: 1, total: 1 };
+let releaseTranslation;
+let releaseRecognition;
+const firstRecognition = new Promise(resolve => { releaseRecognition = resolve; });
+const firstTranslation = new Promise(resolve => { releaseTranslation = resolve; });
+const segment = { type: 'segment', segment_id: 0, source: 'recording', original: '<script>lecture</script>', corrected: 'Recorded lecture', translated: 'Bài giảng', language: 'Vietnamese', start: 125, end: 132, completed: 1, total: 1 };
 const server = http.createServer((req, res) => {
   if (req.url === '/api/recording_jobs') {
     stopped = false; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({job_id: 'test-job'})); return;
@@ -28,10 +32,35 @@ const server = http.createServer((req, res) => {
       send({ type: 'status', stage: 'Transcribing' });
       await new Promise(r => setTimeout(r, 250));
       if (stopped) {send({type: 'stopped', completed: 0}); res.end(); return;}
+      const onlyTranscribe = /name="mode"\r\n\r\ntranscribe/.test(body);
+      if (mode !== 'empty') {
+        send({ type: 'transcript_segment', segment_id: 0, original: '<script>lecture', start: 125, end: 128, processed_s: 128, duration_s: 140 });
+        if (uploads.length === 1) await firstRecognition;
+        else await new Promise(r => setTimeout(r, 250));
+        if (stopped) { send({type: 'stopped', completed: 0}); res.end(); return; }
+        if (onlyTranscribe && mode === 'failure') { send({type: 'error', message: 'Recognition interrupted'}); res.end(); return; }
+        send({ type: 'transcript_segment', segment_id: 0, original: segment.original, start: 125, end: 132, processed_s: 132, duration_s: 140 });
+      }
+      if (onlyTranscribe) { send({type: 'complete', total: mode === 'empty' ? 0 : 1}); res.end(); return; }
+      if (mode !== 'empty') {
+        send({ type: 'transcript', language: 'Vietnamese', total: 2, segments: [
+          { segment_id: 0, original: segment.original, start: 125, end: 132 },
+          { segment_id: 1, original: 'Second paragraph.', start: 132, end: 140 }
+        ] });
+        send({ type: 'translating', segment_id: 0, completed: 0, total: 2 });
+        if (uploads.length === 1) await firstTranslation;
+        else await new Promise(r => setTimeout(r, 500));
+        if (stopped) {send({type: 'stopped', completed: 0}); res.end(); return;}
+      }
       if (mode === 'failure') send({ type: 'error', message: 'Engine unavailable' });
       else {
-        if (mode !== 'empty') { send(segment); await new Promise(r => setTimeout(r, 250)); }
-        send({ type: 'complete', total: mode === 'empty' ? 0 : 1 });
+        if (mode !== 'empty') {
+          send({ ...segment, total: 2 });
+          send({ type: 'translating', segment_id: 1, completed: 1, total: 2 });
+          send({ ...segment, segment_id: 1, original: 'Second paragraph.', corrected: 'Second paragraph.', start: 132, end: 140, completed: 2, total: 2 });
+          await new Promise(r => setTimeout(r, 250));
+        }
+        send({ type: 'complete', total: mode === 'empty' ? 0 : 2 });
       }
       res.end();
     });
@@ -107,8 +136,24 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent.includes('Preparing'));
     assert.equal(await page.locator('#recordingProgress').isVisible(), true);
     assert.equal(await page.locator('#stopLiveBtn').isEnabled(), true);
+    await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent.includes('02:08 of 02:20'));
+    assert.equal(await page.locator('#recordingResults .hist-en').first().textContent(), '<script>lecture');
+    assert.equal(await page.locator('#recordingMode').isEnabled(), false);
+    await page.evaluate(() => { window.growingParagraph = document.querySelector('#recordingResults .history-item'); });
+    releaseRecognition();
+    await page.waitForFunction(() => document.querySelector('#recordingResults .hist-trans')?.textContent === 'Translating…');
+    assert.equal(await page.evaluate(() => window.growingParagraph === document.querySelector('#recordingResults .history-item')), true);
+    assert.equal(await page.locator('#recordingResults .history-item').count(), 2);
+    assert.equal(await page.locator('#recordingResults .hist-en').first().textContent(), segment.original);
+    assert.ok((await page.locator('#recordingResults .english-label').first().textContent()).includes('DRAFT'));
+    assert.equal(await page.locator('#recordingResults .hist-trans').last().textContent(), 'Translation pending…');
+    await page.evaluate(() => { window.firstDraftRow = document.querySelector('#recordingResults .history-item'); });
+    releaseTranslation();
     await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent === 'Complete');
-    assert.equal(await page.locator('#recordingResults .timestamp').textContent(), '02:05–02:12');
+    assert.equal(await page.locator('#recordingResults .history-item').count(), 2);
+    assert.equal(await page.evaluate(() => window.firstDraftRow === document.querySelector('#recordingResults .history-item')), true);
+    assert.equal(await page.locator('#recordingResults .hist-en').first().textContent(), 'Recorded lecture');
+    assert.equal(await page.locator('#recordingResults .timestamp').first().textContent(), '02:05–02:12');
     assert.equal(await page.locator('#historyList .history-item').count(), 1);
     assert.equal(await page.locator('#liveEnglishText').textContent(), 'Live words');
     assert.ok(uploads[0].includes('Vietnamese'));
@@ -128,6 +173,8 @@ const server = http.createServer((req, res) => {
     await page.locator('#retryRecordingBtn').waitFor({ state: 'visible' });
     assert.ok((await page.locator('#uploadProgressText').textContent()).includes('Engine unavailable'));
     assert.equal(await page.locator('#recordingResults .recording-document').count(), 2);
+    assert.equal(await page.locator('#recordingResults .recording-document').last().locator('.hist-en').count(), 2);
+    assert.equal(await page.locator('#recordingResults .recording-document').last().locator('.hist-trans').first().textContent(), 'Translation unavailable');
     mode = 'success';
     await page.locator('#retryRecordingBtn').click();
     await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent === 'Complete');
@@ -139,12 +186,50 @@ const server = http.createServer((req, res) => {
     mode = 'success';
     await page.locator('#mediaFileInput').setInputFiles({name: 'stop.wav', mimeType: 'audio/wav', buffer: Buffer.from('test')});
     await page.locator('#startRecordingBtn').click();
-    await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent.includes('Preparing'));
+    await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent.includes('Translating paragraph'));
     await page.locator('#stopRecordingBtn').click();
     await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent.includes('Stopped'));
     assert.ok(stopped);
     assert.equal(await page.getByRole('button', {name: 'Discard these results'}).count(), 1);
     assert.equal(await page.locator('#recordingExportBtn').isEnabled(), true);
+    assert.equal(await page.locator('#recordingResults .recording-document').last().locator('.hist-en').count(), 2);
+    assert.equal(await page.locator('#recordingResults .recording-document').last().locator('.hist-trans').first().textContent(), 'Translation stopped');
+    const stoppedDownload = page.waitForEvent('download');
+    await page.locator('#recordingExportBtn').click();
+    const stoppedText = fs.readFileSync(await (await stoppedDownload).path(), 'utf8');
+    assert.ok(stoppedText.includes('English (draft, uncorrected)') && stoppedText.includes('Translation stopped'));
+    await page.locator('#recordingMode').selectOption('transcribe');
+    assert.equal(await page.locator('#recordingTranslationSettings').isVisible(), false);
+    assert.equal(await page.locator('#transcriptionOnlyNote').isVisible(), true);
+    await page.locator('#mediaFileInput').setInputFiles({name: 'english.wav', mimeType: 'audio/wav', buffer: Buffer.from('test')});
+    await page.locator('#startRecordingBtn').click();
+    await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent === 'Complete');
+    const onlyDoc = page.locator('#recordingResults .recording-document').last();
+    assert.equal(await onlyDoc.locator('.history-item').count(), 1);
+    assert.equal(await onlyDoc.locator('.english-label').textContent(), 'ENGLISH · TRANSCRIBED');
+    assert.equal(await onlyDoc.locator('.hist-trans').isVisible(), false);
+    assert.equal(await onlyDoc.locator('.timestamp').textContent(), '02:05–02:12');
+    mode = 'failure';
+    await page.locator('#mediaFileInput').setInputFiles({name: 'partial.wav', mimeType: 'audio/wav', buffer: Buffer.from('test')});
+    await page.locator('#startRecordingBtn').click();
+    await page.locator('#retryRecordingBtn').waitFor({state: 'visible'});
+    assert.equal(await page.locator('#recordingResults .recording-document').last().locator('.hist-en').textContent(), '<script>lecture');
+    mode = 'success';
+    await page.locator('#recordingMode').selectOption('translate');
+    assert.equal(await page.locator('#recordingTranslationSettings').isVisible(), true);
+    await page.locator('#retryRecordingBtn').click();
+    await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent === 'Complete');
+    assert.equal(await page.locator('#recordingResults .recording-document').last().locator('.hist-trans').isVisible(), false);
+    await page.locator('#recordingMode').selectOption('transcribe');
+    await page.locator('#mediaFileInput').setInputFiles({name: 'partial-stop.wav', mimeType: 'audio/wav', buffer: Buffer.from('test')});
+    await page.locator('#startRecordingBtn').click();
+    await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent.includes('02:08 of 02:20'));
+    await page.locator('#stopRecordingBtn').click();
+    await page.waitForFunction(() => document.getElementById('uploadProgressText').textContent.includes('partial transcript kept'));
+    const onlyDownload = page.waitForEvent('download');
+    await page.locator('#recordingExportBtn').click();
+    const onlyText = fs.readFileSync(await (await onlyDownload).path(), 'utf8').split('partial-stop.wav')[1];
+    assert.ok(onlyText.includes('English · transcribed') && onlyText.includes('<script>lecture') && !onlyText.includes('Translation:'));
     await page.locator('#stopLiveBtn').click();
     assert.ok(actions.includes('/api/stop'));
     await page.setViewportSize({ width: 390, height: 844 });
