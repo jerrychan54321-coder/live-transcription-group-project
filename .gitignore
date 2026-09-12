@@ -23,3 +23,7 @@ ENV/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# My own file - YG
+run-conda.bat
+UI_MERGE_NOTES.md

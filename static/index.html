@@ -1,162 +1,233 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Live Bilingual Classroom Translation | ADI205/501</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-  <div class="app-container">
-    <!-- Header -->
-    <header class="app-header">
-      <div class="brand">
-        <div class="brand-badge">ADI205/501</div>
-        <h1>Live Bilingual Translation</h1>
-        <span class="status-indicator ready" id="connectionStatus">● 100% Local Engine</span>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f5f7f8">
+    <title>Classroom Live · Bilingual Translation</title>
+    <link rel="stylesheet" href="/static/style.css?v=20260912-streaming-transcription-1">
+  </head>
+  <body>
+    <a class="skip-link" href="#liveSubtitles">Skip to subtitles</a>
+    <div class="app-container">
+      <header class="app-header">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">Cc</span>
+          <div>
+            <div class="brand-name">Classroom Live</div>
+            <p>Understand every lecture.</p>
+          </div>
+        </div>
+        <div class="header-meta">
+          <span class="course-tag">ADI205 / 501</span>
+          <span class="status-indicator" id="connectionStatus" role="status">Connecting…</span>
+        </div>
+      </header>
+      <main>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">YOUR BILINGUAL CLASSROOM</p>
+            <h1>A little clarity. In every language.</h1>
+            <p>Follow spoken English with corrections and live translations.</p>
+          </div>
+          <span class="local-note">Local audio processing</span>
+        </div>
+        <div class="workspace-bar">
+          <div class="workspace-tabs" role="tablist" aria-label="Transcription workspace">
+            <button id="liveTab" role="tab" aria-selected="true" aria-controls="liveWorkspace">Live transcription</button>
+            <button id="recordingTab" role="tab" aria-selected="false" aria-controls="recordingWorkspace" tabindex="-1">Recording transcription</button>
+          </div>
+          <div id="listeningBanner" class="listening-banner" hidden>
+            <span id="persistentLiveStatus">Live listening</span>
+            <button id="stopLiveBtn" class="btn btn-secondary">Stop listening</button>
+          </div>
+        </div>
+        <div id="liveWorkspace" role="tabpanel" aria-labelledby="liveTab">
+        <div id="notice" class="notice" role="alert" hidden>
+        </div>
+        <!-- Keep these control IDs aligned with app.js; all actions use the existing FastAPI routes. -->
+        <section class="controls-panel" aria-label="Session controls">
+          <div class="control-group">
+            <label for="audioDeviceSelect">1. Choose your microphone</label>
+            <select id="audioDeviceSelect">
+              <option value="">Loading microphones…</option>
+            </select>
+            <span class="control-hint">Uses the microphone on the server computer</span>
+          </div>
+          <div class="control-group">
+            <span id="languageLabel" class="control-label">2. Translate English to</span>
+            <div class="lang-switch" role="group" aria-labelledby="languageLabel">
+              <button class="lang-btn active" id="btnLangChinese" aria-pressed="true">中文 <span>Chinese</span>
+              </button>
+              <button class="lang-btn" id="btnLangVietnamese" aria-pressed="false">Tiếng Việt <span>Vietnamese</span>
+              </button>
+            </div>
+            <span class="control-hint">Applies to upcoming live speech</span>
+          </div>
+          <div class="control-group record-control">
+            <button id="toggleRecordBtn" class="btn btn-primary" disabled>
+              <span class="record-dot" aria-hidden="true">
+              </span>
+              <span id="recordBtnText">Start listening</span>
+            </button>
+            <span class="control-hint" id="sessionHint">Connecting to the local engine…</span>
+          </div>
+        </section>
+        <section id="liveSubtitles" class="live-subtitle-stage" tabindex="-1" aria-labelledby="subtitleHeading">
+          <div class="stage-header">
+            <h2 id="subtitleHeading">
+              <span class="live-dot" aria-hidden="true">
+              </span>Live subtitles</h2>
+              <span id="liveSpinner" class="spinner" hidden aria-hidden="true"></span><span class="stage-note" id="stageNote" role="status">Ready when you are</span>
+            </div>
+            <!-- A single polite live region announces each complete bilingual result without moving focus. -->
+            <div class="subtitle-card" aria-live="polite" aria-atomic="true">
+              <div class="subtitle-line english">
+                <div class="line-label">ENGLISH · CORRECTED</div>
+                <div class="line-text" id="liveEnglishText">
+                  <span class="placeholder">Your lecture starts here.</span>
+                </div>
+              </div>
+              <div class="subtitle-line translation">
+                <div class="line-label" id="translationLineLabel">SIMPLIFIED CHINESE · TRANSLATION</div>
+                <div class="line-text translated-text" id="liveTranslationText" lang="zh-Hans">
+                  <span class="placeholder">选择麦克风，然后开始聆听。</span>
+                </div>
+              </div>
+              <div class="raw-diff-indicator" id="rawDiffContainer" hidden>
+                <span class="diff-tag">Original English</span>
+                <span id="liveRawText">
+                </span>
+                <span class="diff-changes" id="liveCorrectionsList">
+                </span>
+              </div>
+            </div>
+            <div class="audio-meter-bar">
+              <span class="meter-label">MIC ACTIVITY</span>
+              <div class="meter-track" aria-hidden="true">
+                <div class="meter-fill" id="audioMeterFill">
+                </div>
+              </div>
+              <span class="vad-badge" id="vadStatusBadge">Idle</span>
+              <span class="latency-badge total" id="statTotalBadge">Processing <b id="statTotal">—</b>
+              </span>
+            </div>
+          </section>
+
+            <section class="panel history-panel" aria-labelledby="historyHeading">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">KEEP THE CONTEXT</p>
+                  <h2 id="historyHeading">Live transcript <span class="counter-badge" id="historyCount">0 entries</span>
+                  </h2>
+                </div>
+                <div class="history-actions">
+                  <label class="timestamp-option"><input id="liveTimestamps" type="checkbox" checked> Show timestamps</label>
+                  <button id="exportBtn" class="btn btn-secondary" disabled>Export .txt</button>
+                  <button id="clearBtn" class="btn btn-quiet" disabled>Clear</button>
+                </div>
+              </div>
+              <p class="panel-desc">Latest speech first. Timestamps show session time when speech reaches processing. Saved until you clear or reload.</p>
+              <div class="history-list" id="historyList" tabindex="0" aria-label="Lecture transcript history">
+                <div class="empty-state">
+                  <span class="empty-icon" aria-hidden="true">≡</span>
+                  <h3>Make room for your next idea.</h3>
+                  <p>Start listening to begin your live transcript.<br>Your English and translated transcript will appear here.</p>
+                </div>
+              </div>
+            </section>
+          <!-- Assignment evidence remains available without competing with the classroom reading surface. -->
+          <details class="pipeline-details">
+            <summary>Processing details <span>Pipeline & timing</span>
+            </summary>
+            <div class="details-content">
+              <p>Microphone → speech detection → faster-whisper → Ollama correction & translation → bilingual display. Recordings are normalized with FFmpeg.</p>
+              <div class="latency-pill-group">
+                <span>Speech detection <b id="statVad">—</b>
+                </span>
+                <span>Transcription <b id="statStt">—</b>
+                </span>
+                <span>Correction & translation <b id="statLlm">—</b>
+                </span>
+              </div>
+              <p class="timing-note">The classroom target is approximately 3 seconds end to end. Reported processing time excludes capture, queueing, media normalization and display delivery; live speech detection uses the server’s fixed 10 ms estimate.</p>
+            </div>
+          </details>
+
+        </div>
+        <div id="recordingWorkspace" role="tabpanel" aria-labelledby="recordingTab" hidden>
+          <div class="recording-grid">
+            <section class="panel media-panel" aria-labelledby="mediaHeading">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">LEARN AT YOUR OWN PACE</p>
+                  <h2 id="mediaHeading">Transcribe a recording</h2>
+                </div>
+                <span class="file-tag">AUDIO / VIDEO</span>
+              </div>
+              <p class="panel-desc">Upload audio or video. English appears as speech is recognized. Optionally add corrections and translation afterward.</p>
+              <label for="recordingMode">Transcription mode</label>
+              <select id="recordingMode"><option value="translate">Transcription + translation</option><option value="transcribe">Transcription only</option></select>
+              <p id="transcriptionOnlyNote" class="panel-desc" hidden>English transcription only. Automatic correction is not applied.</p>
+              <div id="recordingTranslationSettings">
+              <label for="recordingLanguage">Translate English to</label>
+              <select id="recordingLanguage"><option value="Chinese">Chinese</option><option value="Vietnamese">Vietnamese</option></select>
+              <label for="segmentLength">Translation segment length</label>
+              <select id="segmentLength">
+                <option value="60">Auto · about 60 seconds</option>
+                <option value="30">30 seconds</option><option value="60-fixed">60 seconds</option>
+                <option value="120">120 seconds</option><option value="custom">Custom</option>
+              </select>
+              <div id="customSegmentField" hidden><label for="customSegmentLength">Target seconds (15–300)</label>
+                <input id="customSegmentLength" type="number" min="15" max="300" step="1" value="60">
+              </div>
+              <p class="panel-desc">Lengths are approximate. Passages end at sentence boundaries where possible and use neighboring text for context.</p>
+              </div>
+              <input type="file" id="mediaFileInput" accept="audio/*,video/*,.mkv,.m4a,.mov" hidden>
+              <button type="button" class="upload-dropzone" id="dropzone">
+                <span class="upload-icon" aria-hidden="true">↑</span>
+                <strong>Choose a recording</strong>
+                <span>or drag and drop it here</span>
+                <small>MP4, MOV, MKV, MP3, WAV, M4A & more</small>
+              </button>
+              <p id="selectedRecordingName" class="panel-desc">No recording selected.</p>
+              <div class="recording-actions">
+                <button id="startRecordingBtn" class="btn btn-primary" disabled>Start transcription</button>
+                <button id="stopRecordingBtn" class="btn btn-secondary" hidden>Cancel upload</button>
+              </div>
+              <div class="upload-status" id="uploadStatus" role="status" hidden>
+                <strong id="uploadFileName">
+                </strong>
+                <span id="uploadProgressText">
+                </span>
+              </div>
+              <progress id="recordingProgress" max="100" value="0" aria-label="Recording progress" hidden></progress>
+              <p id="recordingElapsed" class="panel-desc" hidden></p>
+              <button id="retryRecordingBtn" class="btn btn-secondary" hidden>Retry recording</button>
+              <p class="upload-note">Audio is processed by your local server.</p>
+            </section>
+
+            <section class="panel recording-results" aria-labelledby="recordingResultsHeading">
+              <div class="panel-header">
+                <div><p class="eyebrow">YOUR RECORDINGS</p><h2 id="recordingResultsHeading" tabindex="-1">Recording transcripts</h2></div>
+                <div class="history-actions">
+                  <label class="timestamp-option"><input id="recordingTimestamps" type="checkbox" checked> Show timestamps</label>
+                  <button id="recordingExportBtn" class="btn btn-secondary" disabled>Export .txt</button>
+                  <button id="recordingClearBtn" class="btn btn-quiet" disabled>Clear</button>
+                </div>
+              </div>
+              <p class="panel-desc">Timestamps are positions in the recording. Results stay here until you clear or reload.</p>
+              <div id="recordingResults"><div class="empty-state"><h3>Your recording transcript will appear here.</h3><p>Choose a file to get started. English appears as speech is recognized; optional translations follow after transcription finishes.</p></div></div>
+            </section>
+          </div>
+        </div>
+        </main>
+        <footer>
+          <span>Classroom Live <span aria-hidden="true">/</span> ADI205 / 501</span>
+          <span>Listen. Understand. Keep learning.</span>
+        </footer>
       </div>
-
-      <div class="controls-panel">
-        <!-- Audio Input Device Selector -->
-        <div class="control-group">
-          <label for="audioDeviceSelect">Input Mic</label>
-          <select id="audioDeviceSelect" class="styled-select">
-            <option value="default">Default System Microphone</option>
-          </select>
-        </div>
-
-        <!-- Target Language Toggle -->
-        <div class="control-group">
-          <label>Target Language</label>
-          <div class="lang-switch">
-            <button class="lang-btn active" data-lang="Chinese" id="btnLangChinese">🇨🇳 中文 (Chinese)</button>
-            <button class="lang-btn" data-lang="Vietnamese" id="btnLangVietnamese">🇻🇳 Tiếng Việt (Vietnamese)</button>
-          </div>
-        </div>
-
-        <!-- Action Buttons -->
-        <div class="control-group actions">
-          <button id="toggleRecordBtn" class="btn btn-primary">
-            <span class="mic-icon">🎙️</span>
-            <span id="recordBtnText">Start Listening</span>
-          </button>
-          <button id="clearBtn" class="btn btn-secondary" title="Clear transcript history">Clear</button>
-        </div>
-      </div>
-    </header>
-
-    <!-- Real-time Audio Activity Bar -->
-    <div class="audio-meter-bar">
-      <div class="meter-label">Audio Level</div>
-      <div class="meter-track">
-        <div class="meter-fill" id="audioMeterFill"></div>
-      </div>
-      <div class="vad-badge" id="vadStatusBadge">Silence</div>
-    </div>
-
-    <!-- Live Active Subtitle Stage (Large Prominent Classroom Subtitle Bar) -->
-    <section class="live-subtitle-stage">
-      <div class="stage-header">
-        <span class="stage-tag">LIVE CLASSROOM SUBTITLES</span>
-        <div class="latency-pill-group" id="liveLatencyGroup">
-          <span class="latency-badge vad">VAD: <b id="statVad">--</b></span>
-          <span class="latency-badge stt">STT: <b id="statStt">--</b></span>
-          <span class="latency-badge llm">LLM: <b id="statLlm">--</b></span>
-          <span class="latency-badge total pass" id="statTotalBadge">Total Delay: <b id="statTotal">--</b></span>
-        </div>
-      </div>
-
-      <div class="subtitle-card">
-        <!-- English Corrected Line -->
-        <div class="subtitle-line english">
-          <div class="line-label">English (Corrected)</div>
-          <div class="line-text" id="liveEnglishText">
-            <span class="placeholder">Awaiting speech from instructor...</span>
-          </div>
-        </div>
-
-        <!-- Raw transcription indicator if correction differed -->
-        <div class="raw-diff-indicator" id="rawDiffContainer" style="display: none;">
-          <span class="diff-tag">Original STT:</span>
-          <span class="diff-raw" id="liveRawText"></span>
-          <span class="diff-changes" id="liveCorrectionsList"></span>
-        </div>
-
-        <!-- Translation Line -->
-        <div class="subtitle-line translation">
-          <div class="line-label" id="translationLineLabel">Translation (Simplified Chinese)</div>
-          <div class="line-text translated-text" id="liveTranslationText">
-            <span class="placeholder">等待讲师语音输入...</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Two-Column Section: History Log & Media Normalization Testing -->
-    <div class="bottom-grid">
-      <!-- Full Lecture History -->
-      <section class="panel history-panel">
-        <div class="panel-header">
-          <h2>Lecture Transcript Log</h2>
-          <span class="counter-badge" id="historyCount">0 entries</span>
-        </div>
-        <div class="history-list" id="historyList">
-          <div class="empty-state">No speech logged yet. Click "Start Listening" or upload a file.</div>
-        </div>
-      </section>
-
-      <!-- Assignment Section 7: Media & Audio File Ingestion -->
-      <section class="panel media-panel">
-        <div class="panel-header">
-          <h2>Media Ingestion (FFmpeg Normalization)</h2>
-          <span class="section-tag">Assignment § 7</span>
-        </div>
-        <p class="panel-desc">
-          Upload any recorded lecture audio or video file (<code>.mp4</code>, <code>.m4a</code>, <code>.wav</code>, <code>.mp3</code>). The pipeline extracts and normalizes the track to 16kHz mono PCM via FFmpeg.
-        </p>
-
-        <div class="upload-dropzone" id="dropzone">
-          <input type="file" id="mediaFileInput" accept="audio/*,video/*" style="display: none;">
-          <div class="dropzone-content">
-            <span class="upload-icon">📁</span>
-            <p><strong>Click to browse</strong> or drag & drop lecture media</p>
-            <span class="dropzone-hint">Supports MP4, MOV, MKV, MP3, WAV, M4A</span>
-          </div>
-        </div>
-
-        <div class="upload-status" id="uploadStatus" style="display: none;">
-          <div class="progress-info">
-            <span id="uploadFileName">lecture_sample.mp4</span>
-            <span id="uploadProgressText">Normalizing audio with FFmpeg...</span>
-          </div>
-        </div>
-
-        <div class="specs-summary">
-          <h3>System Pipeline Architecture</h3>
-          <div class="spec-item">
-            <span>Hardware:</span>
-            <b>ASUS Zephyrus G14 (Ryzen 9 8945HS)</b>
-          </div>
-          <div class="spec-item">
-            <span>STT Model:</span>
-            <b>faster-whisper (base.en / int8 AVX-512)</b>
-          </div>
-          <div class="spec-item">
-            <span>Correction & Translation:</span>
-            <b>Ollama qwen2.5:3b (Single Pass JSON)</b>
-          </div>
-          <div class="spec-item">
-            <span>Latency Constraint:</span>
-            <b class="highlight">&le; 3.00 Seconds Target</b>
-          </div>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <script src="/static/app.js"></script>
-</body>
-</html>
+      <script src="/static/app.js?v=20260912-streaming-transcription-1">
+      </script>
+    </body>
+  </html>
