@@ -46,7 +46,7 @@ The following commands use **Windows PowerShell and a standard Python virtual en
 
 Open PowerShell in the project folder and run:
 
-```powershell
+```
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
@@ -56,7 +56,8 @@ ollama pull qwen2.5:3b
 
 Keep Ollama running at `http://localhost:11434`. If the Ollama desktop application is not already serving it, run `ollama serve` in a separate terminal.
 
-Or, simply click on run_venv for Windows.
+#### Simple way for Windows
+After completing prerequisites, double-click run_venv.bat to start the application.
 
 ### 3. Start the application
 
