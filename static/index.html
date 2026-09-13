@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#f5f7f8">
     <title>Classroom Live · Bilingual Translation</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260912-streaming-transcription-1">
+    <link rel="stylesheet" href="/static/style.css?v=20260912-live-entry-list-1">
   </head>
   <body>
     <a class="skip-link" href="#liveSubtitles">Skip to subtitles</a>
@@ -80,27 +80,36 @@
               </span>Live subtitles</h2>
               <span id="liveSpinner" class="spinner" hidden aria-hidden="true"></span><span class="stage-note" id="stageNote" role="status">Ready when you are</span>
             </div>
-            <!-- A single polite live region announces each complete bilingual result without moving focus. -->
-            <div class="subtitle-card" aria-live="polite" aria-atomic="true">
-              <div class="subtitle-line english">
-                <div class="line-label">ENGLISH · CORRECTED</div>
-                <div class="line-text" id="liveEnglishText">
-                  <span class="placeholder">Your lecture starts here.</span>
+            <div class="live-panels">
+            <section class="subtitle-card" aria-labelledby="liveEnglishHeading">
+              <h2 id="liveEnglishHeading">Live English</h2>
+              <p class="panel-desc">Appears as speech is recognized. Automatic correction is not applied here.</p>
+              <div class="line-text" id="liveEnglishText" aria-live="polite" aria-atomic="true"><span class="placeholder">Your lecture starts here.</span></div>
+              <p class="panel-desc" id="englishPosition">Waiting for speech</p>
+            </section>
+            <section class="subtitle-card history-panel" aria-labelledby="historyHeading">
+              <div class="panel-header">
+                <div>
+
+                  <h2 id="historyHeading">Live transcript <span class="counter-badge" id="historyCount">0 entries</span>
+                  </h2>
+                </div>
+                <div class="history-actions">
+                  <label class="timestamp-option"><input id="liveTimestamps" type="checkbox" checked> Show timestamps</label>
+                  <button id="exportBtn" class="btn btn-secondary" disabled>Export .txt</button>
+                  <button id="clearBtn" class="btn btn-quiet" disabled>Clear</button>
                 </div>
               </div>
-              <div class="subtitle-line translation">
-                <div class="line-label" id="translationLineLabel">SIMPLIFIED CHINESE · TRANSLATION</div>
-                <div class="line-text translated-text" id="liveTranslationText" lang="zh-Hans">
-                  <span class="placeholder">选择麦克风，然后开始聆听。</span>
+              <p class="panel-desc">Newest speech first. Original English stays visible; corrections and translations update each entry. Saved until you clear or reload.</p>
+              <p class="panel-desc" id="translationStatus" role="status">Corrections and translation will follow here.</p>
+              <div class="history-list" id="historyList" tabindex="0" aria-label="Lecture transcript history">
+                <div class="empty-state">
+                  <span class="empty-icon" aria-hidden="true">≡</span>
+                  <h3>Make room for your next idea.</h3>
+                  <p>Start listening to begin your live transcript.<br>Your English and translated transcript will appear here.</p>
                 </div>
               </div>
-              <div class="raw-diff-indicator" id="rawDiffContainer" hidden>
-                <span class="diff-tag">Original English</span>
-                <span id="liveRawText">
-                </span>
-                <span class="diff-changes" id="liveCorrectionsList">
-                </span>
-              </div>
+            </section>
             </div>
             <div class="audio-meter-bar">
               <span class="meter-label">MIC ACTIVITY</span>
@@ -114,34 +123,12 @@
             </div>
           </section>
 
-            <section class="panel history-panel" aria-labelledby="historyHeading">
-              <div class="panel-header">
-                <div>
-                  <p class="eyebrow">KEEP THE CONTEXT</p>
-                  <h2 id="historyHeading">Live transcript <span class="counter-badge" id="historyCount">0 entries</span>
-                  </h2>
-                </div>
-                <div class="history-actions">
-                  <label class="timestamp-option"><input id="liveTimestamps" type="checkbox" checked> Show timestamps</label>
-                  <button id="exportBtn" class="btn btn-secondary" disabled>Export .txt</button>
-                  <button id="clearBtn" class="btn btn-quiet" disabled>Clear</button>
-                </div>
-              </div>
-              <p class="panel-desc">Latest speech first. Timestamps show session time when speech reaches processing. Saved until you clear or reload.</p>
-              <div class="history-list" id="historyList" tabindex="0" aria-label="Lecture transcript history">
-                <div class="empty-state">
-                  <span class="empty-icon" aria-hidden="true">≡</span>
-                  <h3>Make room for your next idea.</h3>
-                  <p>Start listening to begin your live transcript.<br>Your English and translated transcript will appear here.</p>
-                </div>
-              </div>
-            </section>
           <!-- Assignment evidence remains available without competing with the classroom reading surface. -->
           <details class="pipeline-details">
             <summary>Processing details <span>Pipeline & timing</span>
             </summary>
             <div class="details-content">
-              <p>Microphone → speech detection → faster-whisper → Ollama correction & translation → bilingual display. Recordings are normalized with FFmpeg.</p>
+              <p>Microphone → speech detection → faster-whisper → immediate English display. Correction and translation run separately and update the matching transcript entry afterward. Recordings are normalized with FFmpeg.</p>
               <div class="latency-pill-group">
                 <span>Speech detection <b id="statVad">—</b>
                 </span>
@@ -227,7 +214,7 @@
           <span>Listen. Understand. Keep learning.</span>
         </footer>
       </div>
-      <script src="/static/app.js?v=20260912-streaming-transcription-1">
+      <script src="/static/app.js?v=20260912-live-entry-list-1">
       </script>
     </body>
   </html>

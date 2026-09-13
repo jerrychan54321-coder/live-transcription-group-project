@@ -9,6 +9,8 @@ let uploading = false;
 let currentLanguage = "Chinese";
 let selectedDevice = "";
 let historyEntries = [];
+const liveRows = new Map();
+const clearedLiveIds = new Set();
 let recordingDocuments = [];
 let lastRecordingFile = null;
 let failedDocument = null;
@@ -23,7 +25,6 @@ let stopRequested = false;
 let recordingPhase = "idle";
 const languageNames = { Chinese: "SIMPLIFIED CHINESE", Vietnamese: "VIETNAMESE" };
 const languageCodes = { Chinese: "zh-Hans", Vietnamese: "vi" };
-const placeholders = { Chinese: "选择麦克风，然后开始聆听。", Vietnamese: "Chọn micrô, sau đó bắt đầu nghe." };
 const emptyHistory = $("historyList").innerHTML;
 
 function showNotice(message = "") {
@@ -105,7 +106,8 @@ function handleSocketMessage(msg) {
     if (msg.active) liveStages.add(msg.stage); else liveStages.delete(msg.stage);
     if (msg.error) showNotice(msg.error);
     refreshLiveStatus();
-  } else if (msg.type === "result" && msg.source !== "recording") renderSubtitleResult(msg);
+  } else if (msg.type === "live_transcript") renderLiveEnglish(msg);
+  else if (msg.type === "result" && msg.source !== "recording") renderSubtitleResult(msg);
   else if (msg.type === "devices") populateAudioDevices(msg.devices, msg.selected);
   else if (msg.type === "state") {
     if (languageNames[msg.language]) applyLanguage(msg.language);
@@ -126,14 +128,7 @@ function applyLanguage(lang) {
 
 function resetSubtitle() {
   $("liveEnglishText").innerHTML = '<span class="placeholder">Your lecture starts here.</span>';
-  $("liveTranslationText").replaceChildren();
-  const placeholder = document.createElement("span");
-  placeholder.className = "placeholder";
-  placeholder.textContent = placeholders[currentLanguage];
-  $("liveTranslationText").append(placeholder);
-  $("translationLineLabel").textContent = `${languageNames[currentLanguage]} · TRANSLATION`;
-  $("liveTranslationText").lang = languageCodes[currentLanguage];
-  $("rawDiffContainer").hidden = true;
+  $("englishPosition").textContent = "Waiting for speech";
   for (const id of ["statVad", "statStt", "statLlm", "statTotal"]) $(id).textContent = "—";
   $("statTotalBadge").className = "latency-badge total";
   $("statTotalBadge").removeAttribute("title");
@@ -141,28 +136,28 @@ function resetSubtitle() {
 
 const milliseconds = (value) => Number.isFinite(value) ? `${value} ms` : "—";
 const seconds = (value) => Number.isFinite(value) ? `${(value / 1000).toFixed(2)} s` : "—";
+function renderLiveEnglish(data) {
+  if (clearedLiveIds.has(data.segment_id)) return;
+  $("liveEnglishText").textContent = data.original;
+  $("englishPosition").textContent = `Speech at ${formatPosition(data.elapsed_s)} · ${seconds(data.stt_latency_ms)} recognition`;
+  addHistoryItem({ ...data, translationState: "pending" });
+}
 function renderSubtitleResult(data) {
+  if (clearedLiveIds.has(data.segment_id)) return;
   if (!data.original && !data.corrected && !data.translated) {
     showNotice("No speech was found. Try a clearer recording or move closer to the microphone.");
     return;
   }
   const language = data.language || currentLanguage;
-  $("liveEnglishText").textContent = data.corrected || data.original || "—";
-  $("liveTranslationText").textContent = data.translated || "Translation unavailable";
-  $("translationLineLabel").textContent = `${languageNames[language] || language} · TRANSLATION`;
-  $("liveTranslationText").lang = languageCodes[language] || "";
-  // Always expose original English, including punctuation/case-only corrections (PDF requirement).
-  $("rawDiffContainer").hidden = false;
-  $("liveRawText").textContent = data.original || "—";
-  const changed = data.original && data.corrected && data.original !== data.corrected;
-  $("liveCorrectionsList").textContent = changed ? (data.errors_corrected || []).join(" · ") || "Text corrected" : "No corrections";
+  // Legacy/reconnected results can arrive without the immediate English event.
+  if (!data.segment_id) $("liveEnglishText").textContent = data.original || "—";
   $("statVad").textContent = milliseconds(data.vad_latency_ms);
   $("statStt").textContent = milliseconds(data.stt_latency_ms);
   $("statLlm").textContent = milliseconds(data.llm_latency_ms);
   $("statTotal").textContent = seconds(data.total_latency_ms);
   $("statTotalBadge").className = `latency-badge total ${Number.isFinite(data.total_latency_ms) ? data.total_latency_ms <= 3000 ? "pass" : "fail" : ""}`;
   $("statTotalBadge").title = "Server processing time; see Processing details for measurement limits.";
-  addHistoryItem({ ...data, language, timestamp: new Date().toLocaleTimeString() });
+  addHistoryItem({ ...data, language, translationState: data.translationState || "complete", timestamp: new Date().toLocaleTimeString() });
 }
 
 function textElement(tag, className, text) {
@@ -173,23 +168,30 @@ function textElement(tag, className, text) {
 }
 function addHistoryItem(item) {
   $("historyList").querySelector(".empty-state")?.remove();
-  const entry = textElement("article", "history-item", "");
+  const existing = item.segment_id && historyEntries.find(e => e.segment_id === item.segment_id);
+  if (existing) { Object.assign(existing, item); item = existing; }
+  else historyEntries.push(item);
+  const entry = liveRows.get(item.segment_id) || textElement("article", "history-item", "");
+  entry.replaceChildren();
   const metadata = textElement("div", "hist-time", "");
   metadata.append(textElement("span", "timestamp", formatPosition(item.elapsed_s)));
-  metadata.append(textElement("span", "", `${item.language} · ${seconds(item.total_latency_ms)} processing`));
+  const pending = item.translationState === "pending";
+  metadata.append(textElement("span", "", `${item.language} · ${pending ? "English uncorrected · translation pending" : item.translationState === "failed" ? "Translation unavailable" : `${seconds(item.total_latency_ms)} processing`}`));
   entry.append(metadata);
-  entry.append(textElement("div", "hist-en", item.corrected || item.original || "—"));
-  const translation = textElement("div", "hist-trans", item.translated || "Translation unavailable");
-  translation.lang = languageCodes[item.language] || "";
+  entry.append(textElement("div", "line-label", "ORIGINAL ENGLISH"));
+  entry.append(textElement("div", "hist-en", item.original || "—"));
+  const changed = item.corrected && item.corrected !== item.original;
+  if (changed) {
+    entry.append(textElement("div", "line-label correction-label", "CORRECTED ENGLISH"));
+    entry.append(textElement("div", "hist-corrected", item.corrected));
+  }
+  entry.append(textElement("div", "line-label", `${languageNames[item.language] || item.language} · TRANSLATION`));
+  const translation = textElement("div", "hist-trans", pending ? "Correction and translation pending…" : recordingTranslationText(item));
+  translation.lang = pending || item.translationState === "failed" ? "en" : languageCodes[item.language] || "";
   entry.append(translation);
-  const original = document.createElement("details");
-  original.append(textElement("summary", "", "Original English & corrections"));
-  original.append(textElement("p", "", item.original || "—"));
-  original.append(textElement("p", "", (item.errors_corrected || []).join(" · ") || (item.corrected && item.corrected !== item.original ? "Text corrected" : "No corrections")));
-  entry.append(original);
   // DOM text nodes keep model output and uploaded content from becoming executable markup.
-  $("historyList").prepend(entry);
-  historyEntries.push(item);
+  if (!existing) $("historyList").prepend(entry);
+  if (item.segment_id) liveRows.set(item.segment_id, entry);
   $("historyCount").textContent = `${historyEntries.length} ${historyEntries.length === 1 ? "entry" : "entries"}`;
   refreshControls();
 }
@@ -251,6 +253,8 @@ $("audioDeviceSelect").addEventListener("change", () => runAction(async () => {
 }));
 $("clearBtn").addEventListener("click", () => {
   if (!window.confirm("Clear this tab’s transcript? Export it first if you want to keep a copy.")) return;
+  for (const item of historyEntries) if (item.segment_id) clearedLiveIds.add(item.segment_id);
+  liveRows.clear();
   historyEntries = [];
   $("historyList").innerHTML = emptyHistory;
   $("historyCount").textContent = "0 entries";
@@ -281,6 +285,9 @@ function formatPosition(value) {
   return `${hours ? `${hours}:` : ""}${String(minutes).padStart(2, "0")}:${String(whole % 60).padStart(2, "0")}`;
 }
 function refreshLiveStatus() {
+  const pending = historyEntries.filter(item => item.translationState === "pending").length;
+  const failed = historyEntries.filter(item => item.translationState === "failed").length;
+  $("translationStatus").textContent = !connected ? "Connection lost · translation progress unknown" : pending ? `${pending} ${pending === 1 ? "segment" : "segments"} pending · English keeps updating` : failed ? `${failed} ${failed === 1 ? "translation" : "translations"} unavailable · English retained in history` : historyEntries.length ? "Translations up to date" : "Corrections and translation will follow here.";
   const processing = [...liveStages].join(" & ");
   $("liveSpinner").hidden = !connected || !processing;
   $("stageNote").textContent = !connected ? "Connection lost · recording state unknown" :

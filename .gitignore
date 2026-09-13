@@ -27,3 +27,6 @@ Thumbs.db
 # My own file - YG
 run-conda.bat
 UI_MERGE_NOTES.md
+
+#temp files
+tmp/
