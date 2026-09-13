@@ -56,6 +56,8 @@ ollama pull qwen2.5:3b
 
 Keep Ollama running at `http://localhost:11434`. If the Ollama desktop application is not already serving it, run `ollama serve` in a separate terminal.
 
+Or, simply click on run_venv for Windows.
+
 ### 3. Start the application
 
 ```powershell
