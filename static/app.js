@@ -8,6 +8,12 @@ let busy = false;
 let uploading = false;
 let currentLanguage = "Chinese";
 let selectedDevice = "";
+let browserAudio = false;
+let engineReady = true;
+const microphone = window.BrowserMicrophone ? new BrowserMicrophone((message) => {
+  updateRecordingState(false);
+  if (message) showNotice(message);
+}) : null;
 let historyEntries = [];
 const liveRows = new Map();
 const clearedLiveIds = new Set();
@@ -27,9 +33,10 @@ const languageNames = { Chinese: "SIMPLIFIED CHINESE", Vietnamese: "VIETNAMESE" 
 const languageCodes = { Chinese: "zh-Hans", Vietnamese: "vi" };
 const emptyHistory = $("historyList").innerHTML;
 
-function showNotice(message = "") {
+function showNotice(message = "", setup = false) {
   $("notice").textContent = message;
   $("notice").hidden = !message;
+  $("notice").classList.toggle("setup", setup);
 }
 
 // HTTP failures must be visible; fetch does not reject on 4xx/5xx responses.
@@ -50,21 +57,21 @@ async function request(endpoint, body) {
 }
 
 function refreshControls() {
-  $("toggleRecordBtn").disabled = !connected || busy || (!isRecording && !selectedDevice);
+  $("toggleRecordBtn").disabled = !connected || !engineReady || busy || (!isRecording && !selectedDevice);
   $("audioDeviceSelect").disabled = !connected || busy || isRecording;
   $("btnLangChinese").disabled = $("btnLangVietnamese").disabled = !connected || busy;
   $("dropzone").disabled = uploading;
   $("recordingLanguage").disabled = uploading;
   $("recordingMode").disabled = uploading;
   $("segmentLength").disabled = $("customSegmentLength").disabled = uploading;
-  $("startRecordingBtn").disabled = uploading || !selectedRecordingFile;
+  $("startRecordingBtn").disabled = !engineReady || uploading || !selectedRecordingFile;
   $("stopRecordingBtn").hidden = !uploading;
   $("stopRecordingBtn").disabled = stopRequested;
   $("recordingClearBtn").disabled = uploading || !recordingDocuments.length;
   $("recordingExportBtn").disabled = uploading || !recordingDocuments.some(d => d.entries.length);
   $("clearBtn").disabled = $("exportBtn").disabled = historyEntries.length === 0;
   refreshLiveStatus();
-  $("sessionHint").textContent = !connected ? "Waiting for the local engine…" : isRecording ? "Listening · stop when your lecture ends" : !selectedDevice ? "Connect a microphone to start listening" : "Ready · start when your lecturer speaks";
+  $("sessionHint").textContent = !connected ? "Waiting for the local engine…" : !engineReady ? "Preparing models · please wait" : isRecording ? "Listening · stop when your lecture ends" : !selectedDevice ? "Connect a microphone to start listening" : "Ready · start when your lecturer speaks";
 }
 
 function initWebSocket() {
@@ -78,6 +85,7 @@ function initWebSocket() {
     refreshControls();
   };
   ws.onclose = () => {
+    if (browserAudio && microphone?.socket) microphone.stop("Connection lost. Start listening after reconnecting.");
     connected = false;
     $("connectionStatus").textContent = "○ Reconnecting…";
     $("connectionStatus").className = "status-indicator disconnected";
@@ -108,7 +116,14 @@ function handleSocketMessage(msg) {
     refreshLiveStatus();
   } else if (msg.type === "live_transcript") renderLiveEnglish(msg);
   else if (msg.type === "result" && msg.source !== "recording") renderSubtitleResult(msg);
-  else if (msg.type === "devices") populateAudioDevices(msg.devices, msg.selected);
+  else if (msg.type === "devices") {
+    browserAudio = msg.audio_source === "browser";
+    $("microphoneHint").textContent = browserAudio ? "Uses this browser's microphone · permission required" : "Uses the microphone on the server computer";
+    if (browserAudio) {
+      populateAudioDevices([{ index: "default", name: "Default browser microphone" }], "default");
+      microphone.devices().then(devices => { if (devices.length) populateAudioDevices(devices, "default"); }).catch(() => {});
+    } else populateAudioDevices(msg.devices, msg.selected);
+  }
   else if (msg.type === "state") {
     if (languageNames[msg.language]) applyLanguage(msg.language);
     updateRecordingState(msg.is_recording);
@@ -234,6 +249,17 @@ async function runAction(action) {
   finally { busy = false; refreshControls(); }
 }
 $("toggleRecordBtn").addEventListener("click", () => runAction(async () => {
+  if (browserAudio) {
+    if (microphone.socket) microphone.stop();
+    else {
+      if (isRecording) throw new Error("Stop listening in the tab that started the microphone.");
+      await microphone.start(selectedDevice, currentLanguage);
+      updateRecordingState(true);
+      const devices = await microphone.devices();
+      if (devices.length) populateAudioDevices(devices, selectedDevice);
+    }
+    return;
+  }
   if (!isRecording) {
     // The initial server device can be null. Explicitly apply the microphone displayed in the UI.
     await request("/api/set_device", { device_index: Number(selectedDevice) });
@@ -248,6 +274,7 @@ for (const lang of Object.keys(languageNames)) $(`btnLang${lang}`).addEventListe
 }));
 $("audioDeviceSelect").addEventListener("change", () => runAction(async () => {
   const nextDevice = $("audioDeviceSelect").value;
+  if (browserAudio) { selectedDevice = nextDevice; return; }
   try { await request("/api/set_device", { device_index: Number(nextDevice) }); selectedDevice = nextDevice; }
   finally { $("audioDeviceSelect").value = selectedDevice; }
 }));
@@ -318,6 +345,11 @@ for (const mode of ["live", "recording"]) {
   });
 }
 $("stopLiveBtn").addEventListener("click", () => runAction(async () => {
+  if (browserAudio) {
+    if (!microphone.socket) throw new Error("Stop listening in the tab that started the microphone.");
+    microphone.stop();
+    return;
+  }
   const result = await request("/api/stop");
   updateRecordingState(result.is_recording);
 }));
@@ -586,3 +618,20 @@ async function handleFileUpload(file, retry = false) {
 $("retryRecordingBtn").addEventListener("click", () => { if (lastRecordingFile) handleFileUpload(lastRecordingFile, true); });
 refreshControls();
 initWebSocket();
+
+async function checkEngineReady() {
+  try {
+    const response = await fetch("/api/health");
+    if (!response.ok) return;
+    const status = await response.json();
+    if (typeof status.ready !== "boolean") return;
+    const wasReady = engineReady;
+    engineReady = status.ready;
+    if (!engineReady) showNotice(status.error ? `${status.stage}: ${status.error}. Restart the container after fixing the problem.` : status.stage, !status.error);
+    else if (!wasReady) showNotice();
+    refreshControls();
+    if (!engineReady) setTimeout(checkEngineReady, 2000);
+  } catch (_) { setTimeout(checkEngineReady, 2000); }
+}
+checkEngineReady();
+window.addEventListener("pagehide", () => { if (browserAudio) microphone?.stop(); });

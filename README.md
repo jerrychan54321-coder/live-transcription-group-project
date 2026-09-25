@@ -2,7 +2,11 @@
 
 A local classroom transcription and translation application for ADI205/501. It shows English speech as text first, then adds corrected English and Chinese or Vietnamese translation. It also supports recorded audio/video, transcription-only mode for recordings, and `.txt` export.
 
-Audio and text are processed locally using faster-whisper and Ollama. Initial setup requires internet access to download packages and models; no cloud API key is required.
+Audio and text are processed locally using faster-whisper and Ollama. Docker installation requires internet access to download the image and models; no cloud API key is required.
+
+**Peer testers: install Docker Desktop and follow [SETUP.md](SETUP.md). Python,
+Ollama, and FFmpeg are already included in the image, so you do not install them
+separately.**
 
 ## Demos
 
@@ -32,6 +36,31 @@ flowchart TD
 FastAPI serves the HTML/CSS/JavaScript interface. Live results arrive through WebSockets; recording results use streamed HTTP responses. Separate workers let live English appear while translation is still processing.
 
 ## Running the application
+
+### Docker Desktop (peer installation)
+
+The container version captures the microphone in your browser and includes Ollama,
+FFmpeg, and the Python runtime. No host Ollama or API key is needed.
+See [SETUP.md](SETUP.md) for the GUI installation path and
+[docker/README.md](docker/README.md) for building the image locally.
+Release image: **`jchan314/classroom-live:1.0.0`**, available on
+[Docker Hub](https://hub.docker.com/r/jchan314/classroom-live).
+This release targets Linux AMD64; Apple Silicon/ARM has not been verified.
+The local development image remains `classroom-live:dev`.
+First launch downloads model files automatically and displays setup progress.
+See [Docker validation](docs/docker-validation.md) for completed checks and remaining
+assignment work.
+
+## Developer setup (running source code without Docker)
+
+Peer testers should use [SETUP.md](SETUP.md). The optional instructions below are
+for developers who want to run the source code directly on their computer.
+
+<details>
+<summary>Show developer prerequisites and terminal commands</summary>
+
+The instructions below remain available for running directly in Python. That mode
+uses the host microphone by default; set `AUDIO_SOURCE=browser` to use browser capture.
 
 The following commands use **Windows PowerShell and a standard Python virtual environment**.
 
@@ -72,6 +101,8 @@ Wait for initialization, then open **http://localhost:8000**. The first startup 
 - **Export:** Save results as `.txt` before clearing or reloading the page. Stopping a recording job preserves partial results but may wait for the current model operation to finish.
 
 If translation fails, check that Ollama is running and `ollama list` includes `qwen2.5:3b`. If an upload fails, check FFmpeg and that the file contains audio. If no speech is detected, check the selected microphone and Windows permissions.
+
+</details>
 
 Translation speed depends on the computer. Informal Surface Pro 9 observations were approximately 2–3 seconds from speech to English and 7–8 seconds to corrected translation; these are estimates, not guaranteed timings.
 
