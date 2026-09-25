@@ -4,6 +4,17 @@ Run the recording event tests from the project root:
 python -m unittest discover -s tests -v
 ```
 
+The suite also checks browser-audio protocol validation, single-microphone ownership,
+disconnect cleanup, and final-phrase flushing without loading speech models.
+Run `node tests/audio-worklet.cjs` to check streaming resampling at 16, 44.1, and 48 kHz.
+
+With a running Docker container, Playwright, and Edge installed, set TEST_AUDIO_FILE
+to a short English speech WAV and run `node tests/container-browser.cjs`.
+It uses a simulated browser microphone to exercise real VAD, Whisper and Chinese
+translation, then uploads the same recording for Vietnamese translation. It checks
+microphone cleanup and saves a screenshot under tmp/. It does not test the physical
+microphone permission dialog; that still needs a human check.
+
 Run the browser regression checks with Node.js, Playwright, and Microsoft Edge available:
 
 ```text
