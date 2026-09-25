@@ -12,9 +12,6 @@ ENV/
 
 # Secrets and local configurations
 .env
-.env.*
-!.env.example
-!.env.template
 *.local
 
 # IDE & Editor artifacts
@@ -33,6 +30,3 @@ UI_MERGE_NOTES.md
 
 #temp files
 tmp/
-output/
-.quarto/
-node_modules/

@@ -3,13 +3,14 @@ import threading
 import time
 from typing import Callable, Generator, List, Optional
 import numpy as np
+import sounddevice as sd
 
 
 class VADAudioStreamer:
     """Real-time microphone stream capturer and Voice Activity Detection (VAD) chunker.
 
-    Segments continuous classroom speech on natural pauses or maximum sentence
-    limits. Chunking bounds capture time; inference and queueing add further delay.
+    Segments continuous classroom speech on natural phrase pauses (~300-400ms) or
+    maximum sentence limits (~4.5s) to guarantee sub-3-second end-to-end latency.
     """
 
     SAMPLE_RATE = 16000
@@ -23,10 +24,8 @@ class VADAudioStreamer:
         min_silence_duration_ms: int = 600,
         max_speech_duration_s: float = 4.5,
         level_callback: Optional[Callable] = None,
-        audio_source: str = "host",
     ):
         self.device_index = device_index
-        self.audio_source = audio_source
         self.vad_threshold = vad_threshold
         self.min_speech_frames = int(
             (min_speech_duration_ms / 1000.0)
@@ -40,11 +39,10 @@ class VADAudioStreamer:
             max_speech_duration_s * (self.SAMPLE_RATE / self.FRAME_SIZE)
         )
 
-        self._audio_queue: queue.Queue = queue.Queue(maxsize=320)
+        self._audio_queue: queue.Queue = queue.Queue()
         self._speech_chunk_queue: queue.Queue = queue.Queue()
         self._is_running = False
-        self._stream = None
-        self._worker_thread = None
+        self._stream: Optional[sd.InputStream] = None
         self._vad_model = None
         self._vad_lock = threading.Lock()
         self._level_callback = level_callback
@@ -66,7 +64,6 @@ class VADAudioStreamer:
     @staticmethod
     def get_audio_devices() -> List[dict]:
         """Lists all input audio devices."""
-        import sounddevice as sd
         devices = []
         for i, dev in enumerate(sd.query_devices()):
             if dev["max_input_channels"] > 0:
@@ -86,20 +83,7 @@ class VADAudioStreamer:
             pass  # Suppress overflow warnings in logs
         # Convert to 1D float32 mono array
         mono_audio = indata[:, 0].copy().astype(np.float32)
-        try:
-            self.feed_audio(mono_audio)
-        except queue.Full:
-            pass  # Host audio callback must not block the hardware capture thread.
-
-    def feed_audio(self, samples):
-        """Accept normalized 16 kHz mono float32 samples from either input source."""
-        if not self._is_running:
-            return
-        samples = np.asarray(samples, dtype=np.float32)
-        if samples.ndim != 1 or not np.isfinite(samples).all():
-            raise ValueError("Audio must contain finite mono samples")
-        # Bound memory and report backpressure instead of accumulating old audio.
-        self._audio_queue.put_nowait(np.clip(samples, -1, 1).copy())
+        self._audio_queue.put(mono_audio)
 
     def _vad_processing_loop(self):
         """Background worker thread evaluating frames against VAD and segmenting speech."""
@@ -108,7 +92,7 @@ class VADAudioStreamer:
         silence_frame_count = 0
         is_speech_active = False
 
-        while self._is_running or not self._audio_queue.empty():
+        while self._is_running:
             try:
                 chunk = self._audio_queue.get(timeout=0.1)
                 buffer = np.concatenate((buffer, chunk))
@@ -181,36 +165,21 @@ class VADAudioStreamer:
                     is_speech_active = False
                     silence_frame_count = 0
 
-        # Preserve the final phrase when the user stops before a natural pause.
-        if len(speech_buffer) >= self.min_speech_frames:
-            self._speech_chunk_queue.put(np.concatenate(speech_buffer))
-
     def start(self):
         """Starts capturing microphone audio."""
         if self._is_running:
             return
 
-        for pending in (self._audio_queue, self._speech_chunk_queue):
-            while not pending.empty():
-                try:
-                    pending.get_nowait()
-                except queue.Empty:
-                    break
-        if self._vad_model is not None:
-            self._vad_model.reset_states()
         self._is_running = True
-        try:
-            if self.audio_source == "host":
-                import sounddevice as sd
-                self._stream = sd.InputStream(
-                    samplerate=self.SAMPLE_RATE, channels=1, dtype="float32",
-                    blocksize=self.FRAME_SIZE, device=self.device_index,
-                    callback=self._audio_callback,
-                )
-                self._stream.start()
-        except Exception:
-            self._is_running = False
-            raise
+        self._stream = sd.InputStream(
+            samplerate=self.SAMPLE_RATE,
+            channels=1,
+            dtype="float32",
+            blocksize=self.FRAME_SIZE,
+            device=self.device_index,
+            callback=self._audio_callback,
+        )
+        self._stream.start()
 
         self._worker_thread = threading.Thread(
             target=self._vad_processing_loop, daemon=True
@@ -228,8 +197,6 @@ class VADAudioStreamer:
             except Exception:
                 pass
             self._stream = None
-        if self._worker_thread and self._worker_thread is not threading.current_thread():
-            self._worker_thread.join(timeout=2)
         print("[VAD] Audio capture stopped.")
 
     def get_speech_chunk(self, timeout: float = 0.5) -> Optional[np.ndarray]:

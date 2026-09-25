@@ -22,7 +22,6 @@ from fastapi.staticfiles import StaticFiles
 import numpy as np
 from pydantic import BaseModel
 import uvicorn
-import requests
 
 from pipeline.corrector_translator import CorrectorTranslator
 from pipeline.media_normalizer import MediaNormalizer
@@ -72,10 +71,6 @@ event_loop = None
 stt_thread = None
 llm_thread = None
 is_pipeline_active = False
-audio_source = os.getenv("AUDIO_SOURCE", "host")
-audio_owner = None
-initialization_task = None
-engine_status = {"ready": False, "stage": "Starting engines", "error": None}
 # Text-only backlog: a slow translator must never block speech recognition.
 stt_results_queue: queue.Queue = queue.Queue()
 
@@ -131,7 +126,7 @@ def _stt_worker():
     print("[STT Worker] Speech-to-text thread started.")
 
     while is_pipeline_active:
-        if vad_streamer is None:
+        if vad_streamer is None or not vad_streamer._is_running:
             time.sleep(0.1)
             continue
 
@@ -231,77 +226,24 @@ def _llm_worker():
 
 @app.on_event("startup")
 async def startup_event():
-    global event_loop, initialization_task
+    global vad_streamer, stt_engine, llm_engine, stt_thread, llm_thread, is_pipeline_active, event_loop
     event_loop = asyncio.get_running_loop()
-    initialization_task = asyncio.create_task(asyncio.to_thread(initialize_engines))
-
-
-def initialize_engines():
-    global vad_streamer, stt_engine, llm_engine, stt_thread, llm_thread, is_pipeline_active
-    try:
-        _initialize_engines()
-    except Exception as exc:
-        engine_status.update(ready=False, stage="Setup failed", error=str(exc))
-        print(f"[Startup Error] {exc}")
-
-
-def _initialize_engines():
-    global vad_streamer, stt_engine, llm_engine, stt_thread, llm_thread, is_pipeline_active
-    llm_engine = CorrectorTranslator(
-        model_name=os.getenv("OLLAMA_MODEL", "qwen2.5:3b"),
-        ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
-    )
-    if os.getenv("AUTO_PULL_MODELS", "0") == "1":
-        engine_status["stage"] = "Waiting for the translation engine"
-        for _ in range(60):
-            if llm_engine.is_service_ready():
-                break
-            time.sleep(1)
-        else:
-            raise RuntimeError("Ollama did not start. Restart the container and inspect its Logs tab.")
-        engine_status["stage"] = "Preparing translation model (first launch needs internet)"
-        with requests.post(f"{llm_engine.ollama_url}/api/pull",
-                           json={"model": llm_engine.model_name, "stream": True},
-                           stream=True, timeout=(10, 600)) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if line:
-                    progress = json.loads(line)
-                    if progress.get("error"):
-                        raise RuntimeError(progress["error"])
-                    total = progress.get("total", 0)
-                    percent = f" {int(100 * progress.get('completed', 0) / total)}%" if total else ""
-                    engine_status["stage"] = ("Downloading translation model" + percent
-                                              if total else "Preparing translation model")
 
     print("[Startup] Initializing models and engines...")
-    engine_status["stage"] = "Loading speech model (first launch may download files)"
     stt_engine = SpeechToTextTranscriber(
-        model_size=os.getenv("WHISPER_MODEL", "base.en"), device="cpu", compute_type="int8",
-        cpu_threads=int(os.getenv("CPU_THREADS", "4")),
+        model_size="base.en", device="cpu", compute_type="int8", cpu_threads=6
     )
-    vad_streamer = VADAudioStreamer(device_index=None, level_callback=_on_audio_level, audio_source=audio_source)
+    llm_engine = CorrectorTranslator(
+        model_name="qwen2.5:3b", ollama_url="http://localhost:11434"
+    )
+    vad_streamer = VADAudioStreamer(device_index=None, level_callback=_on_audio_level)
 
     is_pipeline_active = True
     stt_thread = threading.Thread(target=_stt_worker, daemon=True)
     llm_thread = threading.Thread(target=_llm_worker, daemon=True)
     stt_thread.start()
     llm_thread.start()
-    engine_status.update(ready=True, stage="Ready", error=None)
     print("[Startup] System ready on http://localhost:8000")
-
-
-@app.get("/api/health")
-async def health():
-    return {**engine_status, "audio_source": audio_source}
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    global is_pipeline_active
-    is_pipeline_active = False
-    if vad_streamer:
-        vad_streamer.stop()
 
 
 @app.get("/")
@@ -312,8 +254,6 @@ async def get_index():
 
 @app.get("/api/devices")
 async def list_devices():
-    if audio_source == "browser":
-        return {"devices": [], "audio_source": "browser"}
     devices = VADAudioStreamer.get_audio_devices()
     return {"devices": devices, "selected": active_device_index}
 
@@ -321,8 +261,6 @@ async def list_devices():
 @app.post("/api/set_device")
 async def set_audio_device(payload: DevicePayload):
     global active_device_index, vad_streamer
-    if audio_source == "browser":
-        raise HTTPException(409, "Select the microphone in your browser")
     active_device_index = payload.device_index
     was_running = vad_streamer._is_running if vad_streamer else False
 
@@ -339,8 +277,6 @@ async def set_audio_device(payload: DevicePayload):
 @app.post("/api/set_language")
 async def set_language(payload: LanguagePayload):
     global active_language
-    if payload.language not in {"Chinese", "Vietnamese"}:
-        raise HTTPException(400, "Unsupported translation language")
     active_language = payload.language
     return {"status": "ok", "language": active_language}
 
@@ -348,10 +284,6 @@ async def set_language(payload: LanguagePayload):
 @app.post("/api/start")
 async def start_recording():
     global session_started_at
-    if audio_source == "browser":
-        raise HTTPException(409, "Start the browser audio connection")
-    if not engine_status["ready"]:
-        raise HTTPException(503, engine_status["stage"])
     if vad_streamer and not vad_streamer._is_running:
         session_started_at = time.time()
         vad_streamer.start()
@@ -361,8 +293,6 @@ async def start_recording():
 
 @app.post("/api/stop")
 async def stop_recording():
-    if audio_source == "browser":
-        raise HTTPException(409, "Stop from the browser that started listening")
     if vad_streamer:
         vad_streamer.stop()
     await broadcast_ws({"type": "state", "is_recording": False})
@@ -454,11 +384,11 @@ async def websocket_endpoint(websocket: WebSocket):
     connected_websockets.add(websocket)
 
     # Send initial devices and status
-    devices = [] if audio_source == "browser" else VADAudioStreamer.get_audio_devices()
+    devices = VADAudioStreamer.get_audio_devices()
     is_rec = vad_streamer._is_running if vad_streamer else False
 
     await websocket.send_json(
-        {"type": "devices", "devices": devices, "selected": active_device_index, "audio_source": audio_source}
+        {"type": "devices", "devices": devices, "selected": active_device_index}
     )
     await websocket.send_json(
         {"type": "state", "is_recording": is_rec, "language": active_language, "session_started_at": session_started_at}
@@ -474,60 +404,5 @@ async def websocket_endpoint(websocket: WebSocket):
         connected_websockets.discard(websocket)
 
 
-@app.websocket("/ws/audio")
-async def browser_audio(websocket: WebSocket):
-    """One microphone owner per local instance; binary frames are 16 kHz float32 LE."""
-    global audio_owner, session_started_at, active_language
-    await websocket.accept()
-    if audio_source != "browser" or not engine_status["ready"]:
-        await websocket.send_json({"error": engine_status["stage"] if not engine_status["ready"] else "Browser audio is disabled"})
-        await websocket.close(code=1013)
-        return
-    if audio_owner is not None:
-        await websocket.send_json({"error": "Another tab is already using the microphone. Stop it first."})
-        await websocket.close(code=1008)
-        return
-    audio_owner = websocket
-    try:
-        config = await asyncio.wait_for(websocket.receive_json(), timeout=10)
-        if not isinstance(config, dict) or config.get("sample_rate") != 16000 or config.get("format") != "f32le" or config.get("language") not in {"Chinese", "Vietnamese"}:
-            raise ValueError("Unsupported audio configuration")
-        active_language = config["language"]
-        session_started_at = time.time()
-        vad_streamer.start()
-        await websocket.send_json({"type": "ready"})
-        await broadcast_ws({"type": "state", "is_recording": True, "language": active_language})
-        while True:
-            message = await asyncio.wait_for(websocket.receive(), timeout=30)
-            if message["type"] == "websocket.disconnect":
-                break
-            if message.get("text"):
-                control = json.loads(message["text"])
-                if not isinstance(control, dict):
-                    raise ValueError("Invalid audio control message")
-                if control.get("type") == "stop":
-                    break
-                continue
-            data = message.get("bytes", b"")
-            if not data or len(data) % 4 or len(data) > 64000:
-                raise ValueError("Invalid audio frame")
-            vad_streamer.feed_audio(np.frombuffer(data, dtype="<f4"))
-    except WebSocketDisconnect:
-        pass
-    except (ValueError, queue.Full, asyncio.TimeoutError) as exc:
-        try:
-            await websocket.send_json({"error": str(exc) or "Audio stopped because the connection could not keep up. Try again."})
-        except Exception:
-            pass
-    finally:
-        vad_streamer.stop()
-        audio_owner = None
-        await broadcast_ws({"type": "state", "is_recording": False})
-        try:
-            await websocket.close()
-        except Exception:
-            pass
-
-
 if __name__ == "__main__":
-    uvicorn.run(app, host=os.getenv("APP_HOST", "127.0.0.1"), port=int(os.getenv("PORT", "8000")), log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")

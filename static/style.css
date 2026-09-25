@@ -641,11 +641,6 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-.notice.setup {
-  background: #eef8f6;
-  border-color: #afd5ce;
-  color: #175f54;
-}
 .notice {
   background: #fff2ee;
   border: 1px solid #e6b5a8;

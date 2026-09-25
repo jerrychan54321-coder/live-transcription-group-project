@@ -87,7 +87,7 @@ const server = http.createServer((req, res) => {
     }
   }
   const file = pathname === '/' ? 'static/index.html' : pathname.slice(1);
-  if (!['static/index.html', 'static/app.js', 'static/browser-audio.js', 'static/audio-worklet.js', 'static/style.css'].includes(file)) {res.writeHead(404);res.end();return;}
+  if (!['static/index.html', 'static/app.js', 'static/style.css'].includes(file)) {res.writeHead(404);res.end();return;}
   res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html');
   res.end(fs.readFileSync(path.join(__dirname, '..', file)));
 });
@@ -277,3 +277,4 @@ const server = http.createServer((req, res) => {
     console.log('PASS: stale-cache upgrade, styled tabs/toggles, workspace isolation, streaming progress, timestamps/exports, retry, empty audio, persistent stop, mobile layout, keyboard navigation, safe output rendering.');
   } finally { await browser.close(); server.close(); }
 })().catch(e => { console.error(e); server.close(); process.exitCode = 1; });
+
