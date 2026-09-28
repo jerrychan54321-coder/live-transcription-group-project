@@ -12,7 +12,7 @@ Classroom Live helps students follow English lectures by displaying original Eng
 | Jerry Chan | Implemented core functionality: transcription, the basic webpage, and Ollama correction and translation. |
 | Owen Liu | Compiled the technical decisions and their justification. |
 | Yiyang Ge | Updated the UI, extended recorded transcription, and changed live output to display English before correction and translation. |
-| Quang | Contribution to be confirmed. |
+| Quang | Proposed Vietnamese translation support and helped select and test the Ollama model. |
 
 The assignment requires live microphone input, incremental bilingual output, correction, engineering comparisons, testing evidence, and approximately three seconds or less of end-to-end delay. The prototype provides the main workflows, but the full corrected translation does not meet that timing target in the reported observations.
 
