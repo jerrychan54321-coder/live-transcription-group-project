@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="The story behind Classroom Live: local English transcription, correction, and Chinese or Vietnamese translation for students following lectures.">
+  <meta name="theme-color" content="#12483f">
+  <title>Classroom Live — A bilingual classroom project</title>
+  <link rel="stylesheet" href="portfolio.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to the article</a>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Classroom Live, back to top"><span class="brand-mark" aria-hidden="true">Cc</span><span>Classroom Live<small>A student project</small></span></a>
+    <nav aria-label="Page navigation">
+      <a href="#demo">Demo</a><a href="#how-it-works">How it works</a><a href="#lessons">Lessons</a><a href="#team">Team</a>
+    </nav>
+    <a class="header-link" href="https://github.com/jerrychan54321-coder/live-transcription-group-project">View the code <span aria-hidden="true">↗</span></a>
+  </header>
+
+  <main id="main">
+    <section class="hero page-width" id="top" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow">Human–AI collaboration · September 2026</p>
+        <h1 id="hero-title">Helping students follow <em>English lectures.</em></h1>
+        <p class="lead">Classroom Live turns spoken English into text, then adds corrections and a Chinese or Vietnamese translation. Students can read along and save a transcript to revisit later.</p>
+        <div class="hero-actions"><a class="button primary" href="#demo">Watch it work <span aria-hidden="true">↓</span></a><a class="text-link" href="#try-it">Run it on your laptop</a></div>
+        <p class="hero-note">A working prototype with local processing. Translation quality and speed are still being improved.</p>
+      </div>
+      <figure class="hero-figure">
+        <div class="figure-toolbar"><span>Inside Classroom Live</span><span>English → 中文 / Tiếng Việt</span></div>
+        <a href="#demo" aria-label="Go to the Classroom Live demonstration"><img src="assets/demo-poster.jpg" alt="A frame from the Classroom Live demonstration showing the app's bilingual transcript interface." width="852" height="480" fetchpriority="high"></a>
+        <figcaption><span class="caption-index">01</span> English appears first. Corrections and translation follow in the same transcript.</figcaption>
+      </figure>
+    </section>
+
+    <div class="feature-strip page-width" aria-label="Application features">
+      <div><span class="feature-label">Read along</span><strong>English + Chinese or Vietnamese</strong></div>
+      <div><span class="feature-label">Choose your source</span><strong>Live microphone or a recording</strong></div>
+      <div><span class="feature-label">Keep your notes</span><strong>Export a text transcript</strong></div>
+    </div>
+
+    <section class="article-section page-width split-section" aria-labelledby="problem-title">
+      <div><p class="eyebrow">The problem</p><h2 id="problem-title">A missed sentence can mean a missed idea.</h2></div>
+      <div class="prose"><p>Following a lecture in a second language takes more than knowing individual words. A student may still be making sense of one sentence when the speaker moves on to the next.</p><p>We built Classroom Live to give students another way to follow the discussion: read the English as it is recognized, consult a translation, and return to the transcript after class. The same workflow supports reviewing recorded audio and video.</p><p>The aim is useful learning support. Recognition and translation can make mistakes, so the original English remains visible alongside the model’s output.</p></div>
+    </section>
+
+    <section class="demo-section" id="demo" aria-labelledby="demo-title">
+      <div class="page-width">
+        <div class="section-heading"><div><p class="eyebrow">See the prototype</p><h2 id="demo-title">From speech to a bilingual transcript.</h2></div><p>Actual project recordings, with live input and uploaded media shown separately.</p></div>
+        <figure class="video-figure">
+          <video controls playsinline preload="metadata" poster="assets/demo-poster.jpg" aria-label="Classroom Live live transcription and translation demonstration" aria-describedby="live-demo-description">
+            <source src="assets/demo.mp4" type="video/mp4">
+            <p>Your browser cannot play this video. <a href="assets/demo.mp4">Download the live demonstration.</a></p>
+          </video>
+          <figcaption><span><strong>Live transcription and translation</strong><span id="live-demo-description">The app displays recognized English and a Chinese translation as speech is processed.</span></span><span class="duration">20 seconds</span></figcaption>
+        </figure>
+        <details class="recording-demo"><summary>Watch the recorded-media workflow <span>37 seconds</span></summary><div class="recording-demo-body"><p>Upload an audio or video file, follow processing progress, and review the resulting transcript. Recording results have their own workspace.</p><video controls playsinline preload="none" aria-label="Classroom Live recorded-media demonstration"><source src="assets/recording-demo.mp4" type="video/mp4"><p><a href="assets/recording-demo.mp4">Download the recording demonstration.</a></p></video></div></details>
+      </div>
+    </section>
+
+    <section class="article-section page-width" id="how-it-works" aria-labelledby="pipeline-title">
+      <div class="section-heading"><div><p class="eyebrow">How it works</p><h2 id="pipeline-title">One voice. Two stages of understanding.</h2></div><p>Speech recognition and translation run separately, so English can appear while the language model is still working.</p></div>
+      <ol class="pipeline" aria-label="Speech-to-translation pipeline">
+        <li><span class="step-number">01</span><h3>Capture speech</h3><p>The browser requests microphone permission and sends audio to the app running on the laptop.</p><span class="technology">Browser audio + speech detection</span></li>
+        <li><span class="step-number">02</span><h3>Show the English</h3><p>Whisper recognizes spoken English. The first transcript appears immediately after recognition.</p><span class="technology">faster-whisper · base.en</span></li>
+        <li><span class="step-number">03</span><h3>Correct and translate</h3><p>A local language model corrects the text and translates it into the selected language.</p><span class="technology">Ollama · Qwen2.5 3B</span></li>
+        <li><span class="step-number">04</span><h3>Read and save</h3><p>The transcript updates with the translation. Original English stays available, and results can be exported.</p><span class="technology">Browser display + text export</span></li>
+      </ol>
+      <p class="pipeline-note"><strong>For recordings:</strong> FFmpeg prepares the audio before recognition. Students can choose transcription alone or add correction and translation.</p>
+    </section>
+
+    <section class="decisions-section" id="decisions" aria-labelledby="decisions-title"><div class="page-width">
+      <div class="section-heading"><div><p class="eyebrow">Engineering decisions</p><h2 id="decisions-title">The choices behind the experience.</h2></div><p>We balanced accessibility, privacy, and useful feedback against the limits of laptop hardware.</p></div>
+      <div class="decision-list">
+        <article><span class="decision-number">01 / Responsiveness</span><div><h3>Let English arrive before the translation.</h3><p>Waiting for every model to finish made the app feel slow. Separate workers now publish English first and add the correction and translation afterward. This gives students earlier feedback, although the final bilingual result still takes longer.</p></div></article>
+        <article><span class="decision-number">02 / Local processing</span><div><h3>Keep speech processing on the student’s laptop.</h3><p>Whisper and Ollama run locally, without a cloud API key or per-use API fees. The trade-off is computing demand: model files take space, and translation speed varies with the laptop. The image and initial model downloads require internet access.</p></div></article>
+        <article><span class="decision-number">03 / Installation</span><div><h3>Package the whole runtime in Docker.</h3><p>Installing Python, FFmpeg, and a language-model service separately is a lot to ask of a first-time user. Our image includes those components. A student pulls it in Docker Desktop, maps a port, and opens the app in a browser. Docker installation and microphone permissions remain necessary.</p></div></article>
+        <article><span class="decision-number">04 / Browser audio</span><div><h3>Capture the microphone where the student is.</h3><p>The app already had a web interface, but its original audio capture used the server computer’s microphone. For Docker, we added browser capture and streamed audio into the existing speech pipeline. AI-assisted development helped implement the change; protocol tests and real-model checks were used to verify it.</p></div></article>
+      </div>
+    </div></section>
+
+    <section class="article-section page-width" id="lessons" aria-labelledby="lessons-title">
+      <div class="section-heading"><div><p class="eyebrow">Testing and lessons</p><h2 id="lessons-title">Useful progress, with clear limits.</h2></div><p>Successful output is a starting point. Timing, accuracy, and installation all affect whether a student can rely on the app.</p></div>
+      <div class="evidence-grid">
+        <article class="evidence-card"><p class="metric">22</p><h3>Python checks passed</h3><p>Tests cover audio-session ownership, invalid input, cleanup, final-phrase retention, and recording behavior. Browser checks also cover layout, exports, and error handling.</p><p class="evidence-note">These tests check software behavior, not language accuracy.</p></article>
+        <article class="evidence-card"><p class="metric">~4.9<span>s</span></p><h3>Processing in one container test</h3><p>A real-model check produced English and Chinese output through a simulated browser microphone. A separate uploaded recording produced Vietnamese translation.</p><p class="evidence-note">This figure excludes capture and delivery delays. The roughly three-second end-to-end target has not been demonstrated.</p></article>
+        <article class="evidence-card"><p class="metric metric-text">English first</p><h3>A useful response to waiting</h3><p>Earlier Surface Pro 9 observations estimated 2–3 seconds to English and 7–8 seconds to corrected translation. Showing English sooner improved responsiveness without proving faster translation.</p><p class="evidence-note">Informal observations; results depend on hardware and input.</p></article>
+      </div>
+      <div class="limitations"><h3>What we would improve next</h3><p>Preserve context across sentence boundaries, reduce translation delays, and evaluate accuracy in realistic classroom noise. Generated corrections can change meaning, so the interface retains the original transcription for comparison.</p><a class="text-link" href="https://github.com/jerrychan54321-coder/live-transcription-group-project/blob/main/docs/docker-validation.md">Read the validation notes <span aria-hidden="true">↗</span></a></div>
+    </section>
+
+    <!-- Participant consent confirmed by Jerry on September 27, 2026. -->
+    <section class="peer-section page-width" id="peer-feedback" aria-labelledby="peer-title">
+      <div><p class="eyebrow">Peer feedback</p><h2 id="peer-title">Easy to follow. Harder to set up.</h2></div>
+      <div class="prose">
+        <p>Three people shared feedback: two described hands-on use, while the third watched a demonstration on a friend's laptop. These comments help us understand usability; they do not establish three completed independent installation trials.</p>
+        <p>The recurring strength was a simple, understandable interface. Setup was the main obstacle for the first two participants. Recognition errors, incomplete sentences, translation quality, and waiting time remain areas for improvement.</p>
+        <details><summary>Peer 1 — read the comment</summary><blockquote><p>I tested this app on my laptop. At first, the setup was difficult for me because I do not know how to use Docker, so I needed help to start the app. After the app was running, the interface was easy to understand. I could choose the microphone and see the English transcription and Chinese translation at the same time.</p><p>The transcription was useful because it helped me follow the English speaker better. However, it was not always perfect. Some words were recognized incorrectly and sometimes the sentence was cut off. The Chinese translation was mostly understandable, but sometimes it sounded unnatural or too simple. The speed was okay, but there was a small delay of a few seconds.</p><p>I think this app is helpful for ESL learners. I would use it in a real class, but I think the setup should be easier for people who are not computer science students.</p></blockquote></details>
+        <details><summary>Peer 2 — read the comment</summary><blockquote><p>I&#x27;m a music student, so I don&#x27;t have much experience with software like Docker. The setup was the hardest part, and I needed some help. Once it was running, though, everything was pretty simple. The app was easy to understand, and I could follow the live transcription without any trouble. It wasn&#x27;t perfect, but it worked well most of the time. I think it would be useful for lectures or presentations.</p></blockquote></details>
+        <details><summary>Peer 3 — demo observer — read the comment</summary><blockquote><p>My friend showed me this app on his laptop, so I didn&#x27;t have to install it myself. The idea is interesting, but I noticed quite a few issues while watching the demo. The transcription was sometimes delayed, and a few words were recognized incorrectly. The translation also wasn&#x27;t always accurate, especially with longer sentences. I think the interface is simple and easy to understand, but the app still needs some improvements before I would use it regularly. Overall, it has potential, but I think it needs to be more stable and accurate.</p></blockquote></details>
+        <p>We would prioritize clearer installation guidance, preservation of the full meaning during correction, and better sentence context and delay handling. These are proposed improvements; this feedback update does not change the application.</p>
+        <p class="pending-note"><strong>Trial follow-up:</strong> A demonstration observed on someone else's laptop does not replace installing and using the Docker Hub image independently.</p>
+      </div>
+    </section>
+
+    <section class="article-section page-width" id="team" aria-labelledby="team-title">
+      <div class="section-heading"><div><p class="eyebrow">The people behind the project</p><h2 id="team-title">Built through collaboration.</h2></div><p>Classroom Live is an ADI205/501 group project. Each contribution adds a different part of the experience.</p></div>
+      <div class="team-grid">
+        <article><span class="team-initials" aria-hidden="true">JC</span><h3>Jerry Chan</h3><p>Implemented transcription, the initial webpage, and Ollama correction and translation. Led the Docker packaging and Docker Hub publication work.</p></article>
+        <article><span class="team-initials" aria-hidden="true">OL</span><h3>Owen Liu</h3><p>Compiled the technical decisions and their justification for the project report.</p></article>
+        <article><span class="team-initials" aria-hidden="true">YG</span><h3>Yiyang Ge</h3><p>Updated the interface, extended recorded-media transcription, and changed live output to show English before correction and translation.</p></article>
+        <article><span class="team-initials" aria-hidden="true">Q</span><h3>Quang</h3><p>Proposed Vietnamese translation support and helped select and test the Ollama model.</p></article>
+      </div>
+    </section>
+
+    <section class="try-section" id="try-it" aria-labelledby="try-title"><div class="page-width try-inner">
+      <div><p class="eyebrow">Try Classroom Live</p><h2 id="try-title">Bring the transcript<br>to your own laptop.</h2><p>Use Docker Desktop to pull the image and run the app. Python, Ollama, and FFmpeg are included.</p><p class="release-label">Release image</p><code class="image-name">jchan314/classroom-live:1.0.0</code><p class="compatibility">Current release: Intel/AMD x86-64 with Linux containers. Apple Silicon has not been verified. Allow time and disk space for the initial model downloads.</p></div>
+      <div class="try-links"><a class="button light" href="https://github.com/jerrychan54321-coder/live-transcription-group-project/blob/main/SETUP.md">Follow the setup guide <span aria-hidden="true">↗</span></a><a href="https://hub.docker.com/r/jchan314/classroom-live">Find the Docker image <span aria-hidden="true">↗</span></a><a href="https://github.com/jerrychan54321-coder/live-transcription-group-project">Explore the source code <span aria-hidden="true">↗</span></a><p>This page presents the project. The translation app runs in Docker on your laptop.</p></div>
+    </div></section>
+  </main>
+  <footer class="page-width"><span>Classroom Live · ADI205/501 · 2026</span><a href="#top">Back to top ↑</a></footer>
+</body>
+</html>

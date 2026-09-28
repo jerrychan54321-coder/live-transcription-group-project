@@ -35,6 +35,11 @@ it does not record the user's physical microphone. Screenshot: tmp/container-bro
 (local, ignored by Git). The observed live result reported approximately 4.9 seconds
 of processing; this is not an end-to-end latency guarantee or a 3-second pass.
 
-Still required for the assignment: installation on another
-machine, three peer trials, GitHub publication and Pages article,
-demo video, final source ZIP. A hosted ngrok demo does not replace peer installations.
+Follow-up status (September 27): the public GitHub repository and GitHub Pages
+article are available, with embedded demo clips. Three written comments have
+been supplied, but Peer 3 describes observing a demo rather than installing the
+app independently. The required GUI-only installation evidence and final source
+ZIP remain outstanding. See [peer feedback](peer-feedback.md) and the current
+[requirements check](submission-checklist.md). A hosted ngrok demo does not
+replace peer installations. The test results above are historical; this
+documentation update did not rerun application tests or change application behavior.

@@ -10,9 +10,23 @@ separately.**
 
 ## Demos
 
+- [GitHub Pages portfolio article](https://jerrychan54321-coder.github.io/live-transcription-group-project/)
+
 - [Live transcription and translation](demo/Demo_live_trans_new.mp4)
 - [Recorded-media transcription and translation](demo/Recorded_transcription_demo.mp4)
 - [Sample exported transcript](demo/live-transcript-2026-09-13.txt)
+
+## Peer feedback and submission status
+
+Read the [three peer comments and trial limitations](docs/peer-feedback.md).
+The [original peer evidence document](Peer%20Usage%20Comments.docx), including its
+screenshots, is included in this review branch. Peer 3 describes observing a demonstration,
+so this is not evidence of three completed independent installation trials.
+Jerry confirmed consent for public GitHub sharing of all content in that document,
+including comments, screenshots, and identifying details.
+
+The [requirements check](docs/submission-checklist.md) records completed work,
+missing evidence, and the remaining submission tasks.
 
 ## Architecture
 
@@ -107,3 +121,15 @@ If translation fails, check that Ollama is running and `ollama list` includes `q
 Translation speed depends on the computer. Informal Surface Pro 9 observations were approximately 2–3 seconds from speech to English and 7–8 seconds to corrected translation; these are estimates, not guaranteed timings.
 
 See the [project report](docs/report.md) for design decisions and results, and [testing instructions](tests/README.md) for regression checks.
+
+## Team credits
+
+- **Jerry Chan:** Implemented transcription, the initial webpage, and Ollama correction and translation; led Docker packaging and Docker Hub publication.
+- **Owen Liu:** Compiled the technical decisions and their justification for the project report.
+- **Yiyang Ge:** Updated the interface, extended recorded-media transcription, and changed live output to show English before correction and translation.
+- **Quang:** Proposed Vietnamese translation support and helped select and test the Ollama model.
+
+## License
+
+This project's original code is licensed under the [MIT License](LICENSE).
+Third-party software and models retain their respective licenses.
