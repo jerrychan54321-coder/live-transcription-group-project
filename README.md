@@ -19,10 +19,11 @@ separately.**
 ## Peer feedback and submission status
 
 Read the [three peer comments and trial limitations](docs/peer-feedback.md).
-The original peer evidence document is retained locally; its screenshots are not
-included in this review branch. Peer 3 describes observing a demonstration,
+The [original peer evidence document](Peer%20Usage%20Comments.docx), including its
+screenshots, is included in this review branch. Peer 3 describes observing a demonstration,
 so this is not evidence of three completed independent installation trials.
-Participant consent for sharing the supplied feedback was confirmed by Jerry.
+Jerry confirmed consent for public GitHub sharing of all content in that document,
+including comments, screenshots, and identifying details.
 
 The [requirements check](docs/submission-checklist.md) records completed work,
 missing evidence, and the remaining submission tasks.

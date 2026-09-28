@@ -19,9 +19,9 @@ Open index.html locally to review. All media paths are relative to docs.
 
 - Three verbatim comments have been added to the local article and
   [peer-feedback.md](peer-feedback.md), using anonymous labels. Peer 3 is accurately
-  identified as a demo observer. Jerry confirmed consent for sharing the supplied
-  feedback on September 27, 2026. The original evidence document contains identifying
-  information and screenshots.
+  identified as a demo observer. Jerry explicitly confirmed consent for public GitHub
+  sharing of all content in the original evidence document on September 27, 2026,
+  including comments, identifying information, and screenshots.
 - Independent GUI installation evidence remains limited. Peer 3 follow-up is outside
   this update at Jerry's request; the limitation remains accurately described.
 - Quang's placeholder has been replaced in the article and report using Jerry's supplied description; all four members now also appear in README credits.
@@ -58,7 +58,7 @@ replaced with anonymous numbers. No contribution, benchmark, or consent was inve
 - docs/peer-feedback.md
 - docs/submission-checklist.md
 - README.md and docs/docker-validation.md updates
-- Original Peer Usage Comments.docx is retained locally and excluded from the public branch pending explicit screenshot-publication permission.
+- Peer Usage Comments.docx (original document, including screenshots; consent for all content explicitly confirmed by Jerry).
 
 Later steps: review jerry-peer-feedback-review, then use the group's review
 process to integrate into the branch serving Pages. Pages currently serves

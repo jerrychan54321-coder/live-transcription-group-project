@@ -1,10 +1,10 @@
 # Peer usage comments
 
-Transcribed from the supplied local `Peer Usage Comments.docx`, which also contains trial screenshots. The original document and its screenshots are not included in this public review branch. Comments below are verbatim; identifying headings have been replaced with anonymous peer numbers. The original document is retained unchanged.
+Transcribed from the supplied [Peer Usage Comments.docx](../Peer%20Usage%20Comments.docx), which also contains trial screenshots. The original document and its screenshots are included in this public review branch. Comments below are verbatim; identifying headings have been replaced with anonymous peer numbers. The original document is retained unchanged.
 
 ## Scope and consent
 
-This record contains three comments, not proof of three qualifying independent installations. Peer 3 explicitly describes watching a demonstration on a friend's laptop. Jerry confirmed participant consent for sharing the supplied feedback in this project's publication on September 27, 2026. The source document and its screenshots contain more identifying information than this transcription.
+This record contains three comments, not proof of three qualifying independent installations. Peer 3 explicitly describes watching a demonstration on a friend's laptop. On September 27, 2026, Jerry explicitly confirmed consent for public GitHub sharing of all content in the supplied document, including comments, screenshots, and identifying details. The source document and its screenshots contain more identifying information than this transcription.
 
 ## Peer 1
 
