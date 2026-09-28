@@ -32,15 +32,16 @@ missing evidence, and the remaining submission tasks.
 
 ```mermaid
 flowchart TD
-    A[Microphone] --> B[Silero VAD: speech detection]
-    B --> C[faster-whisper base.en: CPU INT8]
+    A[Microphone] --> C[faster-whisper base.en: CPU INT8]
     C --> D[Show original English immediately]
     C --> E[Text queue]
     E --> F[Ollama Qwen2.5 3B: correction and translation]
     F --> G[Update bilingual transcript]
+
     H[Recorded audio or video] --> I[FFmpeg: 16 kHz mono audio]
     I --> J[Progressive English transcription]
     J --> K[Optional correction and translation after transcription]
+
     D --> L[Browser display and text export]
     G --> L
     J --> L
